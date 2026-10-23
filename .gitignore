@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+.clasp.json
+.clasprc.json
+.DS_Store
+*.log
+.env*
+
+# Data never goes in this repo. Real data lives in NC State Google Sheets.
+*.csv
+!samples/*.csv
+*.xlsx
+*.xls
+*.tsv
+*.json.bak
+/data/
+/exports/
+/uploads/
