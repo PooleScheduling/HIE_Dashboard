@@ -1,7 +1,7 @@
 // Assembles build/ for `clasp push`:
 //   build/index.html     the whole React app as one file (from vite build)
 //   build/Code.js        server code
-//   build/MockData.js    src/data/mock.ts bundled into a global MOCK_REPORT (server fallback data)
+//   build/Analytics.js   src/analytics bundled into a global HIE (datasets, sample rows, buildReport)
 //   build/appsscript.json
 import { build } from "esbuild";
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
@@ -19,18 +19,15 @@ cpSync("server/Code.js", `${out}/Code.js`);
 cpSync("server/appsscript.json", `${out}/appsscript.json`);
 
 await build({
-  stdin: {
-    contents: 'import { mockReport } from "./src/data/mock.ts"; globalThis.MOCK_REPORT = mockReport;',
-    resolveDir: process.cwd(),
-    loader: "ts",
-  },
+  entryPoints: ["src/analytics/index.ts"],
   bundle: true,
   format: "iife",
+  globalName: "HIE",
   target: "es2019",
-  outfile: `${out}/MockData.js`,
+  outfile: `${out}/Analytics.js`,
   logLevel: "warning",
 });
 
-// Apps Script loads files alphabetically; MockData.js only sets a global, and Code.js
-// reads MOCK_REPORT inside functions, so load order doesn't matter.
+// Apps Script loads files alphabetically; Analytics.js only sets a global, and Code.js
+// reads HIE inside functions, so load order doesn't matter.
 console.log("build/ is ready for clasp push");

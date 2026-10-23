@@ -6,18 +6,25 @@
  * Apps Script server for the HIE Engagement Report.
  *
  * How data flows:
- *   1. Start from MOCK_REPORT (built from src/data/mock.ts at deploy time), so the
- *      report always renders, even before any sheet is connected.
- *   2. Overlay values from the HIE Data Hub workbook (DATA_SHEET_ID):
- *        - "Metrics" tab: one row per metric; a row's MetricId replaces that metric.
- *        - "Stories" tab: approved stories replace the demo stories.
- *   3. Rebuild the Hub section live from the kiosk sheet (KIOSK_SHEET_ID).
+ *   1. Read each dataset's rows from its tab in the HIE Data Hub workbook (DATA_SHEET_ID),
+ *      and the Hub check-ins from the kiosk sheet (KIOSK_SHEET_ID). The datasets and their
+ *      tab names are listed in src/analytics/datasets.ts.
+ *   2. Datasets that aren't connected yet use the sample rows, so the report always renders.
+ *      Set USE_SAMPLE_ROWS to "false" to show those areas as not reported instead.
+ *   3. HIE.buildReport (src/analytics/build.ts, bundled as build/Analytics.js) works out every
+ *      number, chart and data note from the rows. The browser runs the same code locally.
+ *   4. Optional overrides: "Metrics" tab (replace a computed number by MetricId) and
+ *      "Team" tab (people and their program areas).
  *
  * Only totals ever leave this file. Student-level rows stay in the sheets.
  *
  * Script properties (Project Settings → Script properties):
- *   DATA_SHEET_ID   ID of the HIE Data Hub workbook (optional at first)
- *   KIOSK_SHEET_ID  ID of the Feedback Kiosk Data sheet (optional)
+ *   DATA_SHEET_ID     ID of the HIE Data Hub workbook (optional at first)
+ *   KIOSK_SHEET_ID    ID of the Feedback Kiosk Data sheet (optional)
+ *   USE_SAMPLE_ROWS   "false" to stop using sample rows for unconnected datasets
+ *   PHOTO_EDITORS     Comma-separated emails allowed to upload and place photos.
+ *                     If blank, only the account that deployed the app can.
+ *   PHOTOS_FOLDER_ID  Drive folder for uploaded photos (created automatically on first upload)
  */
 
 const CACHE_KEY = "report-v1";
@@ -36,20 +43,37 @@ function getReport() {
   const hit = cache.get(CACHE_KEY);
   if (hit) return hit;
 
-  /** @type {any} */
-  const report = JSON.parse(JSON.stringify(MOCK_REPORT));
   const props = PropertiesService.getScriptProperties();
   const dataId = props.getProperty("DATA_SHEET_ID");
   const kioskId = props.getProperty("KIOSK_SHEET_ID");
+  const useSamples = props.getProperty("USE_SAMPLE_ROWS") !== "false";
+  const book = dataId ? SpreadsheetApp.openById(dataId) : null;
 
-  if (dataId) {
-    const book = SpreadsheetApp.openById(dataId);
-    overlayMetrics_(report, book.getSheetByName("Metrics"));
-    overlayStories_(report, book.getSheetByName("Stories"));
+  /** @type {Record<string, Record<string, string>[]>} */ const rows = {};
+  /** @type {Record<string, string>} */ const kinds = {};
+  for (const d of HIE.datasets) {
+    /** @type {Record<string, string>[]} */ let r = [];
+    if (d.id === "hub_checkins") {
+      if (kioskId) {
+        const kiosk = SpreadsheetApp.openById(kioskId);
+        r = readTab_(kiosk.getSheetByName(d.sheetTab) || kiosk.getSheets()[0]);
+        if (r.length) kinds[d.id] = "live";
+      }
+    } else if (book) {
+      r = readTab_(book.getSheetByName(d.sheetTab));
+      if (r.length) kinds[d.id] = "upload";
+    }
+    rows[d.id] = r.length ? r : useSamples ? HIE.sampleRows[d.id] || [] : [];
   }
-  if (kioskId) buildHub_(report, SpreadsheetApp.openById(kioskId).getSheetByName("Responses"));
 
-  report.asOf = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
+  const today = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
+  /** @type {any} */
+  const report = HIE.buildReport(rows, { asOf: today, kinds });
+  if (book) {
+    overlayMetrics_(report, book.getSheetByName("Metrics"));
+    overlayTeam_(report, book.getSheetByName("Team"));
+  }
+
   const json = JSON.stringify(report);
   try { cache.put(CACHE_KEY, json, CACHE_SECONDS); } catch (e) { /* over 100KB: skip cache */ }
   return json;
@@ -64,8 +88,10 @@ function getReport() {
 function appendRows(templateId, rows) {
   const dataId = PropertiesService.getScriptProperties().getProperty("DATA_SHEET_ID");
   if (!dataId) throw new Error("The data workbook isn't connected yet (DATA_SHEET_ID is not set).");
-  const template = MOCK_REPORT.templates.find((/** @type {any} */ t) => t.id === templateId);
-  if (!template) throw new Error("Unknown dataset: " + templateId);
+  const template = HIE.datasets.find((/** @type {any} */ d) => d.id === templateId);
+  if (!template || templateId === "hub_checkins") throw new Error("Unknown dataset: " + templateId);
+  /** @type {string[]} */
+  const columns = template.columns.filter((/** @type {any} */ c) => !c.optional).map((/** @type {any} */ c) => c.name);
   if (!Array.isArray(rows) || rows.length === 0) throw new Error("No rows to add.");
   if (rows.length > 5000) throw new Error("That file has more than 5,000 rows. Split it and upload again.");
 
@@ -74,12 +100,12 @@ function appendRows(templateId, rows) {
   try {
     const book = SpreadsheetApp.openById(dataId);
     const tab = book.getSheetByName(template.sheetTab) || book.insertSheet(template.sheetTab);
-    const header = [...template.columns, "Uploaded by", "Uploaded at"];
+    const header = [...columns, "Uploaded by", "Uploaded at"];
     if (tab.getLastRow() === 0) tab.appendRow(header);
 
     const who = Session.getActiveUser().getEmail() || "unknown";
     const when = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm");
-    const clean = rows.map((r) => template.columns.map((_, i) => String(r[i] ?? "").slice(0, 500)).concat([who, when]));
+    const clean = rows.map((r) => columns.map((_, i) => String(r[i] ?? "").slice(0, 500)).concat([who, when]));
     tab.getRange(tab.getLastRow() + 1, 1, clean.length, header.length).setValues(clean);
   } finally {
     lock.releaseLock();
@@ -129,79 +155,126 @@ function overlayMetrics_(/** @type {any} */ report, /** @type {any} */ sheet) {
   }
 }
 
-/** Stories tab columns: Quote | Program | Audience | Attribution | Source | Approved */
-function overlayStories_(/** @type {any} */ report, /** @type {any} */ sheet) {
-  const rows = readTab_(sheet).filter((r) => r.Quote && String(r.Approved).toUpperCase() === "TRUE");
+/**
+ * Team tab columns: Name | Role | Team | Areas | Lead
+ * Areas is a comma-separated list of program areas (Global, Internships, Practicum, Packways, Career, Hub).
+ * A Team name that isn't in the sample list becomes a new team under the HIE Office.
+ */
+function overlayTeam_(/** @type {any} */ report, /** @type {any} */ sheet) {
+  const rows = readTab_(sheet).filter((r) => r.Name || r.Role);
   if (!rows.length) return;
-  report.stories = rows.map((r, i) => ({
-    id: "sheet-" + i,
-    quote: r.Quote,
-    program: r.Program || "Other",
-    audience: r.Audience || "Student",
-    attribution: r.Attribution || r.Audience || "",
-    source: r.Source || "",
-  }));
-  report.featuredStoryId = report.stories[0].id;
+  /** @param {string} s */
+  const key = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  /** @type {Record<string, string>} */
+  const areaIds = { hub: "hub", "the-hub": "hub" };
+  for (const s of report.sections) {
+    areaIds[s.id] = s.id;
+    areaIds[key(s.kicker)] = s.id;
+    areaIds[key(s.title)] = s.id;
+  }
+  const teamByName = new Map(report.teams.map((/** @type {any} */ t) => [key(t.name), t]));
+  report.people = rows.map((r, i) => {
+    let team = teamByName.get(key(r.Team || "HIE Office"));
+    if (!team) {
+      team = { id: key(r.Team), name: r.Team, summary: "", parent: "hie-office" };
+      report.teams.push(team);
+      teamByName.set(key(r.Team), team);
+    }
+    const areas = String(r.Areas || "").split(",").map((a) => areaIds[key(a)]).filter(Boolean);
+    return { id: "t" + i, name: r.Name || undefined, role: r.Role || "", team: team.id, areas, lead: String(r.Lead).toUpperCase() === "TRUE" };
+  });
 }
 
-/** Rebuilds the Hub section from kiosk responses (uses the Date column only). */
-function buildHub_(/** @type {any} */ report, /** @type {any} */ sheet) {
-  const rows = readTab_(sheet);
-  if (!rows.length) return;
-  /** @type {Record<string, number>} */ const weeks = {};
-  const hours = Array(24).fill(0);
-  /** @type {Record<string, number>} */ const days = {};
-  let first = "";
+// ---------- photos ----------
+// Photos live in a Drive folder in the deploying account. Which page uses which photo
+// is kept in the PHOTO_SLOTS script property as JSON: { "<page or program id>": "<file id>" }.
 
-  for (const r of rows) {
-    const d = new Date(r.Date);
-    if (isNaN(d.getTime())) continue;
-    const hour = Number(Utilities.formatDate(d, TZ, "H"));
-    const dow = Number(Utilities.formatDate(d, TZ, "u")); // 1 = Monday
-    const monday = new Date(d.getTime() - (dow - 1) * 86400000);
-    const wk = Utilities.formatDate(monday, TZ, "yyyy-MM-dd");
-    weeks[wk] = (weeks[wk] || 0) + 1;
-    hours[hour]++;
-    const day = Utilities.formatDate(d, TZ, "EEE");
-    days[day] = (days[day] || 0) + 1;
-    const iso = Utilities.formatDate(d, TZ, "yyyy-MM-dd");
-    if (!first || iso < first) first = iso;
-  }
+function canEditPhotos_() {
+  const props = PropertiesService.getScriptProperties();
+  const me = (Session.getActiveUser().getEmail() || "").toLowerCase();
+  const owner = (Session.getEffectiveUser().getEmail() || "").toLowerCase();
+  const editors = String(props.getProperty("PHOTO_EDITORS") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+  return !!me && (me === owner || editors.includes(me));
+}
 
-  // Fill missing weeks with 0 so gaps (kiosk offline) are visible.
-  const keys = Object.keys(weeks).sort();
-  const filled = [];
-  for (let t = new Date(keys[0] + "T12:00:00"); Utilities.formatDate(t, TZ, "yyyy-MM-dd") <= keys[keys.length - 1]; t = new Date(t.getTime() + 7 * 86400000)) {
-    const k = Utilities.formatDate(t, TZ, "yyyy-MM-dd");
-    filled.push([Utilities.formatDate(t, TZ, "MMM d"), weeks[k] || 0]);
-  }
-  const used = hours.map((n, h) => [h, n]).filter(([, n]) => n > 0);
-  const lo = used[0][0], hi = used[used.length - 1][0];
-  const hourCats = [], hourVals = [];
-  for (let h = lo; h <= hi; h++) {
-    hourCats.push(h === 12 ? "12p" : h > 12 ? h - 12 + "p" : h + "a");
-    hourVals.push(hours[h]);
-  }
-  const total = rows.length;
-  const peakWeek = filled.reduce((a, b) => (b[1] > a[1] ? b : a));
-  const peakHour = hours.indexOf(Math.max(...hours));
-  const peakDay = Object.entries(days).reduce((a, b) => (b[1] > a[1] ? b : a));
-  const today = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
-  const src = { kind: "live", label: "Feedback Kiosk Data", updatedBy: "Hub iPad", updatedOn: today };
-  const firstLabel = Utilities.formatDate(new Date(first + "T12:00:00"), TZ, "MMM d");
+function photosFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty("PHOTOS_FOLDER_ID");
+  if (id) return DriveApp.getFolderById(id);
+  const folder = DriveApp.createFolder("HIE Report Photos");
+  props.setProperty("PHOTOS_FOLDER_ID", folder.getId());
+  return folder;
+}
 
-  report.hub.weekly.categories = filled.map((w) => w[0]);
-  report.hub.weekly.series[0].values = filled.map((w) => w[1]);
-  const zeroWeeks = filled.filter((w) => w[1] === 0).map((w) => w[0]);
-  report.hub.weekly.note = zeroWeeks.length ? "No check-ins the week of " + zeroWeeks.join(", ") + ". Was the kiosk offline?" : undefined;
-  report.hub.hourly.categories = hourCats;
-  report.hub.hourly.series[0].values = hourVals;
-  report.hub.metrics = [
-    { id: "hub-taps", value: total.toLocaleString(), label: "kiosk check-ins since " + firstLabel, source: src },
-    { id: "hub-peak-week", value: String(peakWeek[1]), label: "busiest week (" + peakWeek[0] + ")", source: src },
-    { id: "hub-peak-hour", value: peakHour === 12 ? "12 pm" : peakHour > 12 ? peakHour - 12 + " pm" : peakHour + " am", label: "busiest hour of the day", source: src },
-    { id: "hub-peak-day", value: peakDay[0], label: "busiest weekday (" + peakDay[1] + " check-ins)", source: src },
-  ];
+function photoSlots_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty("PHOTO_SLOTS") || "{}"); } catch (e) { return {}; }
+}
+
+/** @param {GoogleAppsScript.Drive.File} f */
+function photoItem_(f) {
+  const blob = f.getBlob();
+  return {
+    id: f.getId(),
+    name: f.getName(),
+    src: "data:" + blob.getContentType() + ";base64," + Utilities.base64Encode(blob.getBytes()),
+    addedOn: Utilities.formatDate(f.getDateCreated(), TZ, "yyyy-MM-dd"),
+  };
+}
+
+/** Called by the front end. Returns the photo gallery, page assignments and whether this viewer can edit. */
+function getPhotos() {
+  const props = PropertiesService.getScriptProperties();
+  const slots = photoSlots_();
+  /** @type {any[]} */ const photos = [];
+  if (props.getProperty("PHOTOS_FOLDER_ID")) {
+    const files = photosFolder_().getFiles();
+    while (files.hasNext()) {
+      const f = files.next();
+      if (!f.isTrashed() && String(f.getMimeType()).startsWith("image/")) photos.push(photoItem_(f));
+    }
+    photos.sort((a, b) => (a.addedOn < b.addedOn ? 1 : -1));
+  }
+  return JSON.stringify({ photos, slots, canEdit: canEditPhotos_() });
+}
+
+/**
+ * @param {string} name
+ * @param {string} dataUrl  a JPEG or PNG as a data URL (resized in the browser first)
+ */
+function uploadPhoto(name, dataUrl) {
+  if (!canEditPhotos_()) throw new Error("You don't have permission to upload photos.");
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(dataUrl));
+  if (!m) throw new Error("That file isn't a supported image.");
+  const bytes = Utilities.base64Decode(m[2]);
+  if (bytes.length > 5 * 1024 * 1024) throw new Error("That photo is larger than 5 MB.");
+  const file = photosFolder_().createFile(Utilities.newBlob(bytes, m[1], String(name).slice(0, 120) || "photo"));
+  return JSON.stringify(photoItem_(file));
+}
+
+/** @param {string} id */
+function deletePhoto(id) {
+  if (!canEditPhotos_()) throw new Error("You don't have permission to delete photos.");
+  const file = DriveApp.getFileById(id);
+  if (!file.getParents().hasNext() || file.getParents().next().getId() !== photosFolder_().getId()) throw new Error("Unknown photo.");
+  file.setTrashed(true);
+  const slots = photoSlots_();
+  for (const k of Object.keys(slots)) if (slots[k] === id) delete slots[k];
+  PropertiesService.getScriptProperties().setProperty("PHOTO_SLOTS", JSON.stringify(slots));
+  return true;
+}
+
+/**
+ * Puts a photo on a page (or removes it when id is empty).
+ * @param {string} slot  page or program id, e.g. "report", "hub", "global"
+ * @param {string} id
+ */
+function setPhotoSlot(slot, id) {
+  if (!canEditPhotos_()) throw new Error("You don't have permission to change photos.");
+  const slots = photoSlots_();
+  if (id) slots[String(slot)] = String(id);
+  else delete slots[String(slot)];
+  PropertiesService.getScriptProperties().setProperty("PHOTO_SLOTS", JSON.stringify(slots));
+  return true;
 }
 
 /** Run this once from the Apps Script editor after changing sheets, to see fresh numbers right away. */
