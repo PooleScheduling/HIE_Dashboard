@@ -21,23 +21,46 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually http://localhost:5173). Locally the app uses `src/data/mock.ts`, so it always works without Google. The header shows a "Demo data" tag when it does.
+Open the URL Vite prints (usually http://localhost:5173). Locally the app runs the analysis on sample rows (`src/analytics/samples.ts`), so it always works without Google.
+
+## Photos
+
+Page headers start as plain brand-color blocks. People who manage the site can add photos:
+
+- **Contribute data → Photo gallery:** upload photos (they're resized in the browser first), then choose where each one appears.
+- **Any page header:** use the **Add photo / Change photo** button.
+
+Deployed, photos are saved to a Google Drive folder called "HIE Report Photos" in the deploying account (created on first upload). Who can manage photos is set in the script property `PHOTO_EDITORS` (comma-separated emails). If it's blank, only the deploying account can. Locally, photos are kept in your browser so you can try it out.
+
+## Downloads
+
+Every page has a **Download** menu, and every chart has a small download button.
+
+- **PDF:** opens the browser's print dialog with a print layout; choose "Save as PDF". The front page is the report.
+- **Word document:** built in the browser with the open-source `docx` library. The front page's Word file is the full report: every program, table and chart.
+- **Data (CSV):** every number on the page, for Excel or Google Sheets.
+- **Chart image (PNG) / chart data (CSV):** from the button on each chart.
+
+Nothing is uploaded anywhere; files are made on the viewer's computer.
 
 ## Project layout
 
 ```
 src/
   data/types.ts      The ReportData shape. Server and front end both follow it.
-  data/mock.ts       Demo data (published totals and program summaries)
+  analytics/         Datasets (templates), sample rows, and buildReport: all the number-crunching
+  data/mock.ts       The local report: buildReport run on the sample rows
   data/api.ts        getReport() / appendRows(): calls Apps Script when deployed, mock locally
   lib/csv.ts         CSV parsing and template validation for uploads
+  lib/download.ts    File saving, CSV export, print-to-PDF
+  lib/reportDoc.ts   Word (.docx) report builder
   components/        Header, Chart (ECharts wrapper), small UI pieces
   pages/             Report (front page), Programs, Hub, Stories, Contribute
 server/
   Code.js            Apps Script: doGet, getReport, appendRows, sheet overlays, kiosk aggregation
   appsscript.json    Apps Script manifest (time zone, web app access, scopes)
 scripts/
-  prepare-deploy.mjs Builds build/ for clasp (index.html + Code.js + MockData.js)
+  prepare-deploy.mjs Builds build/ for clasp (index.html + Code.js + Analytics.js)
 samples/             Example CSVs for testing uploads
 ```
 
@@ -61,24 +84,25 @@ In the Apps Script editor, open **Project Settings → Script properties** and a
 |---|---|
 | `KIOSK_SHEET_ID` | The ID from the Feedback Kiosk Data sheet URL (`/d/<ID>/edit`) |
 | `DATA_SHEET_ID` | The ID of the HIE Data Hub workbook (see below) |
+| `PHOTO_EDITORS` | Emails allowed to upload and place photos, comma-separated (optional) |
+| `USE_SAMPLE_ROWS` | `false` to stop using sample rows for datasets that aren't connected (optional) |
 
 The account that deploys the web app needs view access to the kiosk sheet and edit access to the Data Hub.
 
+### How the numbers are made
+
+The dashboard doesn't copy numbers from other reports. Each program keeps a simple list of what happened (one row per application, trip, check-in and so on), and `src/analytics/build.ts` works out every number, chart and data note from those rows. The same code runs on the server (deployed) and in the browser (`npm run dev`).
+
+The datasets, their columns and what each one feeds are listed in `src/analytics/datasets.ts`, and on the **Contribute data** page, where each template can be downloaded. Until a team's data is connected, that dataset uses generated sample rows (`src/analytics/samples.ts`). The sample rows follow what teams have told us about volumes, but they're made up. Set the script property `USE_SAMPLE_ROWS` to `false` to show unconnected areas as not reported instead.
+
 ### HIE Data Hub workbook
 
-Create a Google Sheet with these tabs. Anything left blank falls back to the demo data, so you can connect one piece at a time.
+Create a Google Sheet with one tab per dataset, named as in `datasets.ts` (`Packways`, `DeansScholars`, `SBIP Applicants`, `SBIP Employers`, `Practicum`, `Sales Certificate`, `Global`, `Career`, `Stories`, `Settings`). The first row is the column names from the template. Tabs can be added one at a time.
 
-**Metrics:** one row per number shown in the report. `MetricId` must match an `id` in `src/data/mock.ts`.
-
-| MetricId | Value | Label | Change | Period | Source | SourceKind | UpdatedBy | UpdatedOn |
-|---|---|---|---|---|---|---|---|---|
-| sbip-apps | 110 | students applied for about 20 small-business internships next summer | | Summer 2027 | Program sheet | upload | Program team | 2026-10-14 |
-
-`SourceKind` is one of `live`, `upload`, `report`, `waiting`.
-
-**Stories:** `Quote | Program | Audience | Attribution | Source | Approved`. Only rows with `Approved` = `TRUE` appear. Point a Google Form at this tab so anyone can submit.
-
-**Practicum, Global, Career:** created automatically on the first upload from the Contribute page.
+- **Settings:** `Setting | Value`. Set `Poole undergraduate enrollment` so the report can show the share of students with an HIE.
+- **Stories:** only rows with `Approved` = `TRUE` appear. Point a Google Form at this tab.
+- **Metrics (optional):** `MetricId | Value | Label | Change | Period | Source | SourceKind | UpdatedBy | UpdatedOn`. Replaces a computed number by its id, for the rare case a number has to be entered by hand.
+- **Team (optional, page on hold):** `Name | Role | Team | Areas | Lead`.
 
 After editing sheets, numbers refresh within 10 minutes (or run `clearCache` in the editor).
 
