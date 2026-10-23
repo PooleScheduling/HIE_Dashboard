@@ -17,3 +17,9 @@ build/
 /data/
 /exports/
 /uploads/
+
+# Personal notes and AI assistant context. Kept local, never on GitHub.
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+docs/
