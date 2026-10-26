@@ -216,7 +216,7 @@ function photoItem_(f) {
   return {
     id: f.getId(),
     name: f.getName(),
-    src: "data:" + blob.getContentType() + ";base64," + Utilities.base64Encode(blob.getBytes()),
+    src: "data:" + (f.getMimeType() || "image/jpeg") + ";base64," + Utilities.base64Encode(blob.getBytes()),
     addedOn: Utilities.formatDate(f.getDateCreated(), TZ, "yyyy-MM-dd"),
   };
 }
@@ -230,7 +230,7 @@ function getPhotos() {
     const files = photosFolder_().getFiles();
     while (files.hasNext()) {
       const f = files.next();
-      if (!f.isTrashed() && String(f.getMimeType()).startsWith("image/")) photos.push(photoItem_(f));
+      if (!f.isTrashed() && f.getSize() > 0 && String(f.getMimeType()).startsWith("image/")) photos.push(photoItem_(f));
     }
     photos.sort((a, b) => (a.addedOn < b.addedOn ? 1 : -1));
   }
@@ -243,11 +243,22 @@ function getPhotos() {
  */
 function uploadPhoto(name, dataUrl) {
   if (!canEditPhotos_()) throw new Error("You don't have permission to upload photos.");
-  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(dataUrl));
-  if (!m) throw new Error("That file isn't a supported image.");
-  const bytes = Utilities.base64Decode(m[2]);
+  const text = String(dataUrl || "");
+  const comma = text.indexOf(",");
+  const type = (/^data:(image\/(?:jpeg|png|webp));base64$/.exec(text.slice(0, comma)) || [])[1];
+  if (comma < 0 || !type) throw new Error("That file isn't a supported image.");
+  const b64 = text.slice(comma + 1).replace(/\s/g, "");
+  const bytes = Utilities.base64Decode(b64);
+  console.log("uploadPhoto: data url %s chars, base64 %s chars, %s bytes", text.length, b64.length, bytes.length);
+  if (!bytes.length) throw new Error("The photo arrived empty. Try again, or try a smaller photo.");
   if (bytes.length > 5 * 1024 * 1024) throw new Error("That photo is larger than 5 MB.");
-  const file = photosFolder_().createFile(Utilities.newBlob(bytes, m[1], String(name).slice(0, 120) || "photo"));
+  const ext = type === "image/png" ? ".png" : type === "image/webp" ? ".webp" : ".jpg";
+  const blob = Utilities.newBlob(bytes, type, (String(name).slice(0, 120) || "photo") + ext);
+  const file = photosFolder_().createFile(blob);
+  if (!file.getSize()) {
+    file.setTrashed(true);
+    throw new Error("Drive saved an empty file. Please try again.");
+  }
   return JSON.stringify(photoItem_(file));
 }
 
