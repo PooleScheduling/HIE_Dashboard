@@ -101,7 +101,7 @@ function ProgramDashboard({ s, data }: { s: Section; data: ReportData }) {
         <div className="grid two">
           {s.charts.map((c) => (
             <Reveal key={c.title} className="panel">
-              <Chart chart={c} height={c.orientation === "horizontal" ? 220 : 280} />
+              <Chart chart={c} height={c.orientation === "horizontal" ? Math.max(220, c.categories.length * 26 + 40) : 280} />
             </Reveal>
           ))}
         </div>

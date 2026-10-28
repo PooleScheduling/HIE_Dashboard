@@ -11,10 +11,10 @@
 
   /* Program colors for text and icons (NC State brand palette) */
   --a-global: #008473; --a-internships: #d14905; --a-practicum: #4156a1; --a-packways: #cc0000;
-  --a-career: #6f7d1c; --a-hub: #427e93; --a-stories: #4156a1; --a-contribute: #990000;
+  --a-career: #6f7d1c; --a-leadership: #990000; --a-hub: #427e93; --a-stories: #4156a1; --a-contribute: #990000;
   /* Solid color blocks with white text. Same in both themes. */
   --b-red: #cc0000; --b-global: #008473; --b-internships: #d14905; --b-practicum: #4156a1; --b-packways: #cc0000;
-  --b-career: #6f7d1c; --b-hub: #427e93; --b-stories: #4156a1; --b-contribute: #990000;
+  --b-career: #6f7d1c; --b-leadership: #990000; --b-hub: #427e93; --b-stories: #4156a1; --b-contribute: #990000;
 
   /* Chart series (checked for color-blind separation) */
   --s1: #cc0000; --s2: #4156a1; --s1-soft: #f1b9b9;
@@ -33,7 +33,7 @@
   --red: #e8484a; --red-ink: #ff7070; --red-deep: #990000; --red-soft: #3a1d1e;
   --utility: #000000; --foot: #1c1e21; --foot-legal: #000000;
   --a-global: #2fb5a2; --a-internships: #f07a3c; --a-practicum: #8b9de6; --a-packways: #ff6b6b;
-  --a-career: #b0be55; --a-hub: #74b6cc; --a-stories: #8b9de6; --a-contribute: #ff7a7a;
+  --a-career: #b0be55; --a-leadership: #ff8f8f; --a-hub: #74b6cc; --a-stories: #8b9de6; --a-contribute: #ff7a7a;
   --s1: #e8484a; --s2: #6f86d6; --s1-soft: #6b2c2e;
   --g3: #ff8a8a; --g2: #e8484a; --g1: #8f2a2c; --g0: #33363b;
   --live: #9ccc65; --live-soft: #22301a; --upload: #e6b24f; --upload-soft: #362b12; --wait: #a9acb1; --wait-soft: #2a2d31;
@@ -252,6 +252,7 @@ main { padding-block: 24px 80px; }
 .dash { display: grid; gap: 28px; min-width: 0; scroll-margin-top: 80px; animation: swap .4s ease both; }
 .dash .toolbar { margin-top: -12px; }
 .dash .two { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+.dash .two > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 @media (max-width: 1100px) { .dash .two { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {
   .prog-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
