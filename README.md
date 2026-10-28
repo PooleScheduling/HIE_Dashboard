@@ -95,6 +95,11 @@ The dashboard doesn't copy numbers from other reports. Each program keeps a simp
 
 The datasets, their columns and what each one feeds are listed in `src/analytics/datasets.ts`, and on the **Contribute data** page, where each template can be downloaded. Until a team's data is connected, that dataset uses generated sample rows (`src/analytics/samples.ts`). The sample rows follow what teams have told us about volumes, but they're made up. Set the script property `USE_SAMPLE_ROWS` to `false` to show unconnected areas as not reported instead.
 
+Some groupings use public reference lists in `src/analytics/reference.ts`:
+- **County type.** NC counties are sorted into rural, suburban and urban using the NC Rural Center's 2020 Census definitions (people per square mile: rural 250 or fewer, urban 750 or more). Teams only type the county name; Wake, for example, comes out as urban.
+- **Industry sector.** The 11 GICS sectors, plus "Government or nonprofit". Common shorthand like "IT" or "healthcare" is matched to the official name.
+- **Functional area.** A suggested list of job functions for internships, to confirm with the teams.
+
 ### HIE Data Hub workbook
 
 Create a Google Sheet with one tab per dataset, named as in `datasets.ts` (`Packways`, `DeansScholars`, `SBIP Applicants`, `SBIP Employers`, `Practicum`, `Sales Certificate`, `Global`, `Career`, `Stories`, `Settings`). The first row is the column names from the template. Tabs can be added one at a time.
