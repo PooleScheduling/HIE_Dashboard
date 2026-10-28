@@ -1,6 +1,7 @@
 import type { Chart, Coverage, DataSource, Metric, Provenance, ReportData, Section, SourceKind, Story, UploadTemplate } from "../data/types";
 import { datasets, type Row, type Rows } from "./datasets";
 import { people, teams } from "./teams";
+import { COUNTY_TYPES, countyType, gicsSector } from "./reference";
 
 // Turns raw dataset rows into the report: every number, chart and note is computed here.
 // Runs in the browser (sample rows, local dev) and in Apps Script (rows from Google Sheets),
@@ -44,6 +45,16 @@ function countBy(rows: Row[], key: string): [string, number][] {
     if (k) m.set(k, (m.get(k) ?? 0) + 1);
   }
   return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+// Counts rows by a cleaned-up value (e.g. county → county type), dropping blanks.
+function countMapped(rows: Row[], key: string, f: (v: string) => string): [string, number][] {
+  return countBy(rows.map((r) => ({ v: f(val(r, key)) })), "v");
+}
+// County-type counts in a fixed order (Rural, Suburban, Urban, Outside NC), leaving out empty types.
+function byCountyType(rows: Row[]): [string, number][] {
+  const m = new Map(countMapped(rows, "County", countyType));
+  return COUNTY_TYPES.filter((t) => m.get(t)).map((t) => [t, m.get(t)!]);
 }
 
 const bar = (title: string, categories: string[], values: number[], extra: Partial<Chart> = {}, labels?: string[]): Chart => ({
@@ -175,19 +186,22 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     const empLatest = emp(latest.c);
     const empDone = emp(done.c);
     const hosts = empDone.filter((r) => /host/i.test(val(r, "Status")));
-    const ruralCounties = uniq(hosts.filter((r) => yes(val(r, "Rural"))).map((r) => val(r, "County")));
+    const ruralHosts = hosts.filter((r) => countyType(val(r, "County")) === "Rural");
+    const ruralCounties = uniq(ruralHosts.map((r) => val(r, "County")));
+    const allHosts = E.filter((r) => /host/i.test(val(r, "Status")));
+    const placedAll = A.filter((r) => /placed/i.test(val(r, "Status")));
 
     const applicantsM = metric("i-applicants", "sbip_applicants", fmt(latest.applicants), `students applied for ${latest.c}`, ch !== null && prev ? { change: `${signed(ch)} vs ${prev.c}` } : {});
     const metrics = [
       applicantsM,
       metric("i-interviewed", "sbip_applicants", fmt(latest.interviewed), `invited to interview for ${latest.c}`),
-      metric("i-placement", "sbip_applicants", `${pct(done.placed, done.applicants)}%`, `of ${done.c} applicants were placed (${done.placed})`),
     ];
     if (E.length) {
       metrics.push(
         metric("i-contacted", "sbip_employers", fmt(empLatest.length), `businesses contacted for ${latest.c}`),
         metric("i-hosts", "sbip_employers", fmt(hosts.length), `businesses hosted interns in ${done.c}`),
         metric("i-rural", "sbip_employers", String(ruralCounties.length), `rural counties with a host business, ${done.c}`),
+        metric("i-rural-share", "sbip_employers", `${pct(ruralHosts.length, hosts.length)}%`, `of ${done.c} host businesses are in rural counties`),
       );
     }
     const charts: Chart[] = [
@@ -203,6 +217,19 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       const hosting = empLatest.filter((r) => /host/i.test(val(r, "Status"))).length;
       charts.push(hbar(`Employer outreach, ${latest.c}`, [["Contacted", empLatest.length], ["Interested", interested], ["Hosting", hosting]], [empLatest.length, interested, hosting].map((n) => `${n} (${pct(n, empLatest.length)}%)`)));
     }
+    if (empDone.length) {
+      const contactedT = new Map(byCountyType(empDone));
+      const hostT = new Map(byCountyType(hosts));
+      const types = COUNTY_TYPES.filter((t) => contactedT.get(t) || hostT.get(t));
+      charts.push({
+        ...twoSeries(`Businesses by county type, ${done.c}`, types, ["Contacted", types.map((t) => contactedT.get(t) ?? 0)], ["Hosting", types.map((t) => hostT.get(t) ?? 0)]),
+        note: "County types follow the NC Rural Center's 2020 Census definitions.",
+      });
+    }
+    const sectors = countMapped(allHosts, "Industry sector", gicsSector);
+    if (sectors.length) charts.push(hbar("Host businesses by industry sector, all cohorts", sectors));
+    const roles = countBy(placedAll, "Functional area");
+    if (roles.length) charts.push(hbar("Placed interns by functional area, all cohorts", roles));
     return { ...base, summary: `applied for ${latest.c} internships with small and rural businesses`, cardMetric: applicantsM, metrics, charts };
   }
 
@@ -212,9 +239,10 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     const S = R("sales_cert");
     const base: Section = { id: "practicum", title: "Practicum courses and certificates", kicker: "Practicum and certificates", owner: ds("practicum").owner, status: kindOf("practicum"), summary: "Client projects with business partners and the Sales Excellence Certificate", metrics: [], charts: [] };
     if (!P.length) return base;
+    const isOpen = (r: Row) => /open/i.test(val(r, "Course type"));
     const terms = sortTerms(P.map((r) => val(r, "Term")));
     const t = terms.map((term) => {
-      const rows = P.filter((r) => val(r, "Term") === term);
+      const rows = P.filter((r) => val(r, "Term") === term && !isOpen(r));
       const admitted = rows.filter((r) => /enrol|complet|drop/i.test(val(r, "Status")));
       const dropped = admitted.filter((r) => /drop/i.test(val(r, "Status"))).length;
       return {
@@ -231,6 +259,8 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     const first = t[0];
     const dropRate = (x: typeof latest) => pct(x.dropped, x.admitted);
 
+    const openRows = P.filter(isOpen);
+    const openEnrolled = (term: string) => openRows.filter((r) => val(r, "Term") === term && /enrol|complet/i.test(val(r, "Status"))).length;
     const enrolledM = metric("p-enrolled", "practicum", fmt(latest.admitted), `students enrolled in practicum courses, ${latest.term}`);
     const metrics: Metric[] = [
       metric("p-apps", "practicum", fmt(latest.apps), `practicum applications, ${latest.term}`),
@@ -243,6 +273,9 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       bar("Drop rate by term", terms, t.map(dropRate), {}, t.map((x) => `${dropRate(x)}%`)),
       hbar(`Applications by course, ${latest.term}`, latest.byCourse),
     ];
+    if (openRows.length) {
+      charts.push(twoSeries("Students enrolled by course type", terms, ["Application courses", t.map((x) => x.admitted - x.dropped)], ["Open enrollment", terms.map(openEnrolled)]));
+    }
     if (S.length) {
       const cycles = sortTerms(S.map((r) => val(r, "Cycle")));
       const c = cycles.map((cy) => {
@@ -258,6 +291,41 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       charts.push(twoSeries("Sales Excellence Certificate by cycle", cycles, ["Applicants", c.map((x) => x.apps)], ["Accepted", c.map((x) => x.accepted)]));
     }
     return { ...base, summary: `students enrolled in practicum courses in ${latest.term}, from ${fmt(latest.apps)} applications`, cardMetric: enrolledM, metrics, charts };
+  }
+
+  // ----- Student Leadership -----
+  function leadershipSection(): Section {
+    const L = R("leadership");
+    const base: Section = { id: "leadership", title: "Student Leadership", kicker: "Student Leadership", owner: ds("leadership").owner, status: kindOf("leadership"), summary: "Students on student organization executive boards", metrics: [], charts: [] };
+    if (!L.length) return base;
+    const years = sortTerms(L.map((r) => val(r, "Academic year")));
+    const studentsIn = (y: string) => uniq(L.filter((r) => val(r, "Academic year") === y).map((r) => val(r, "Student key")));
+    const latest = years[years.length - 1];
+    const prev = years[years.length - 2];
+    const now = studentsIn(latest);
+    const before = prev ? studentsIn(prev) : [];
+    const returning = now.filter((k) => before.includes(k)).length;
+    const latestRows = L.filter((r) => val(r, "Academic year") === latest);
+    const orgs = countBy(latestRows, "Organization");
+    const officer = latestRows.filter((r) => /president|treasurer|secretary/i.test(val(r, "Role"))).length;
+    const ch = prev ? change(now.length, before.length) : null;
+    const studentsM = metric("l-students", "leadership", fmt(now.length), `students on executive boards, ${latest}`, ch !== null ? { change: `${signed(ch)} vs ${prev}` } : {});
+    return {
+      ...base,
+      summary: `students held executive board roles in ${latest}, across ${orgs.length} organizations`,
+      cardMetric: studentsM,
+      metrics: [
+        studentsM,
+        metric("l-orgs", "leadership", String(orgs.length), `student organizations with an executive board on record, ${latest}`),
+        metric("l-officers", "leadership", `${pct(officer, latestRows.length)}%`, "of board roles are officer roles (president, vice president, treasurer, secretary)"),
+        ...(prev ? [metric("l-returning", "leadership", `${pct(returning, now.length)}%`, `of ${latest} board members also served in ${prev}`)] : []),
+      ],
+      charts: [
+        bar("Students on executive boards by year", years, years.map((y) => studentsIn(y).length)),
+        hbar(`Board roles by organization, ${latest}`, orgs.slice(0, 12)),
+        hbar(`Board roles by type, ${latest}`, countBy(latestRows, "Role")),
+      ],
+    };
   }
 
   // ----- Packways and Dean's Scholars -----
@@ -348,7 +416,9 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       ],
       charts: [
         twoSeries("Internships and co-ops by term", terms, ["Co-ops", terms.map((t) => of(t, /co-?op/i))], ["Internships", terms.map((t) => of(t, /intern/i))]),
-        hbar("Industry mix", countBy(C, "Industry").slice(0, 8)),
+        hbar("Industry sector", countMapped(C, "Industry sector", gicsSector)),
+        ...(countBy(C, "Functional area").length ? [hbar("Functional area", countBy(C, "Functional area"))] : []),
+        ...(byCountyType(C).length ? [{ ...hbar("Where in North Carolina, by county type", byCountyType(C).filter(([t]) => t !== "Outside NC")), note: "Only internships and co-ops with an NC county. County types follow the NC Rural Center's 2020 Census definitions." }] : []),
       ],
     };
   }
@@ -406,6 +476,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         ...R("practicum").filter((r) => /enrol|complet/i.test(val(r, "Status"))).map((r) => val(r, "Student key")),
         ...R("sales_cert").filter((r) => yes(val(r, "Accepted"))).map((r) => val(r, "Student key")),
       ]],
+      ["leadership", "Student Leadership", R("leadership").map((r) => val(r, "Student key"))],
       ["career", "Internships and co-ops", R("career").map((r) => val(r, "Student key"))],
     ];
     const perStudent = new Map<string, number>();
@@ -415,7 +486,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       return { id, label, n: u.length };
     });
     const counts = [...perStudent.values()];
-    const sources = ["global", "sbip_applicants", "practicum", "sales_cert", "career"];
+    const sources = ["global", "sbip_applicants", "practicum", "sales_cert", "leadership", "career"];
     const kind: SourceKind = sources.some((s) => kindOf(s) === "sample") ? "sample" : sources.some((s) => kindOf(s) === "live") ? "live" : "upload";
     return {
       students: perStudent.size,
@@ -460,7 +531,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     return notes;
   }
 
-  const sections = [globalSection(), internshipSection(), practicumSection(), packwaysSection(), careerSection()];
+  const sections = [globalSection(), internshipSection(), practicumSection(), leadershipSection(), packwaysSection(), careerSection()];
   const hubData = hub();
   const cov = coverage();
   const multi = cov.byCount.slice(1).reduce((a, b) => a + b.n, 0);

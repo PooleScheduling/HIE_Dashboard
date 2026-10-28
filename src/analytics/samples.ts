@@ -1,4 +1,5 @@
 import type { Row, Rows } from "./datasets";
+import { FUNCTIONAL_AREAS, NC_COUNTIES, NC_SUBURBAN, NC_URBAN, OTHER_SECTOR } from "./reference";
 
 // Sample rows for every dataset, generated in code (no data files in the repo).
 // They follow what program teams have told us about volumes and patterns, but the
@@ -110,6 +111,9 @@ function deansScholars(): Row[] {
   }));
 }
 
+// Small businesses mostly hire interns for marketing, operations and sales work.
+const smallBizRoles: [string, number][] = [["Marketing", 30], ["Operations and supply chain", 18], ["Sales", 14], ["Finance", 10], ["Accounting", 8], ["Management and strategy", 8], ["Human resources", 5], ["Information systems and analytics", 4], ["Entrepreneurship", 3]];
+
 // Small Business Internship Program: applicants 23 → 57 → 110; placed 11 → 15; summer 2027 interviews under way.
 function sbipApplicants(): Row[] {
   const cohorts: [string, number, number, number, string, string][] = [
@@ -123,30 +127,33 @@ function sbipApplicants(): Row[] {
       "Student key": student(),
       "Applied on": dayBetween(from, to),
       Status: i < placed ? "Placed" : i < interviewed ? "Interviewed" : "Applied",
+      "Functional area": i < placed ? weighted(smallBizRoles) : "",
     })),
   );
 }
 
-const rural = ["Wilson", "Nash", "Edgecombe", "Harnett", "Sampson", "Duplin", "Wayne", "Lenoir", "Halifax", "Warren", "Vance", "Granville", "Person", "Caswell", "Robeson", "Bladen", "Columbus", "Lee", "Moore", "Richmond", "Hoke", "Montgomery"];
-const urban = ["Wake", "Durham", "Mecklenburg", "Guilford", "Forsyth"];
+const rural = NC_COUNTIES.filter((c) => !NC_URBAN.includes(c) && !NC_SUBURBAN.includes(c));
+const nearbyRural = ["Wilson", "Nash", "Edgecombe", "Harnett", "Sampson", "Duplin", "Wayne", "Lenoir", "Halifax", "Warren", "Vance", "Granville", "Person", "Caswell", "Robeson", "Bladen", "Columbus", "Lee", "Moore", "Richmond", "Hoke", "Montgomery", "Franklin", "Chatham"];
+const smallBizSectors: [string, number][] = [["Consumer Discretionary", 24], ["Industrials", 20], ["Consumer Staples", 14], ["Financials", 10], ["Health Care", 9], ["Real Estate", 7], ["Information Technology", 6], ["Materials", 4], ["Communication Services", 3], ["Energy", 1], ["Utilities", 1], [OTHER_SECTOR, 6]];
 
 function sbipEmployers(): Row[] {
   let e = 0;
   const make = (cohort: string, contacted: number, interested: number, hosting: number, hostCounties: string[]) =>
     repeat(contacted, (i) => {
       const host = i < hosting;
-      const county = host ? hostCounties[i % hostCounties.length] : rand() < 0.7 ? pick(rural) : pick(urban);
+      const r = rand();
+      const county = host ? hostCounties[i % hostCounties.length] : r < 0.6 ? pick(rand() < 0.7 ? nearbyRural : rural) : r < 0.85 ? pick(NC_SUBURBAN) : pick(NC_URBAN);
       return {
         Cohort: cohort,
         "Employer key": `E-${pad(++e, 3)}`,
         County: county,
-        Rural: urban.includes(county) ? "No" : "Yes",
+        "Industry sector": weighted(smallBizSectors),
         Status: host ? "Hosting" : i < interested ? "Interested" : "Contacted",
       };
     });
   return [
-    ...make("Summer 2026", 120, 30, 18, shuffle(rural).slice(0, 11)),
-    ...make("Summer 2027", 300, 45, 6, shuffle(rural).slice(0, 5)),
+    ...make("Summer 2026", 120, 30, 18, shuffle(nearbyRural).slice(0, 11)),
+    ...make("Summer 2027", 300, 45, 6, shuffle(nearbyRural).slice(0, 5)),
   ];
 }
 
@@ -170,8 +177,14 @@ function practicum(): Row[] {
         status = dropped < drops && rand() < 0.2 ? "Dropped" : done ? "Completed" : "Enrolled";
         if (status === "Dropped") dropped++;
       }
-      return { Term: term, Course: course, "Student key": student(), Status: status };
-    });
+      return { Term: term, Course: course, "Student key": student(), Status: status, "Course type": "Application" };
+    }).concat(repeat(int(16, 22), () => ({
+      Term: term,
+      Course: "Business analytics honors practicum",
+      "Student key": student(),
+      Status: done ? "Completed" : "Enrolled",
+      "Course type": "Open enrollment",
+    })));
   });
 }
 
@@ -200,16 +213,38 @@ function global(): Row[] {
 
 function career(): Row[] {
   const terms: [string, number][] = [["Summer 2025", 180], ["Fall 2025", 40], ["Spring 2026", 45], ["Summer 2026", 210], ["Fall 2026", 50]];
-  const industries: [string, number][] = [["Financial services", 22], ["Consulting", 14], ["Technology", 16], ["Retail and consumer", 11], ["Healthcare", 9], ["Manufacturing", 10], ["Government", 6], ["Nonprofit", 5], ["Real estate", 7]];
+  const sectors: [string, number][] = [["Financials", 24], ["Industrials", 18], ["Information Technology", 16], ["Consumer Discretionary", 11], ["Health Care", 9], ["Consumer Staples", 7], ["Real Estate", 5], ["Communication Services", 4], ["Materials", 2], ["Energy", 2], ["Utilities", 2], [OTHER_SECTOR, 8]];
+  const counties: [string, number][] = [["Wake", 45], ["Mecklenburg", 20], ["Durham", 12], ["Guilford", 4], ["Forsyth", 3], ["Johnston", 3], ["Orange", 3], ["Cabarrus", 2], ["Buncombe", 2], ["Wilson", 1], ["Harnett", 1], ["Nash", 1], ["Lee", 1], ["Chatham", 1], ["Franklin", 1]];
   return terms.flatMap(([term, n]) =>
     repeat(n, () => ({
       Term: term,
       "Student key": student(),
       Type: rand() < (term.startsWith("Summer") ? 0.08 : 0.45) ? "Co-op" : "Internship",
-      Industry: weighted(industries),
+      "Industry sector": weighted(sectors),
+      "Functional area": weighted(FUNCTIONAL_AREAS.map((f, i) => [f, [14, 22, 16, 12, 15, 5, 10, 4, 2][i] ?? 3] as [string, number])),
+      County: rand() < 0.72 ? weighted(counties) : "",
       Paid: rand() < 0.84 ? "Yes" : "No",
     })),
   );
+}
+
+// Student organization executive boards: about 15 organizations, 4 to 7 board roles each.
+const orgs = ["Finance Club", "Marketing Club", "Accounting Society", "Supply Chain Club", "Entrepreneurship Club", "Business Analytics Club", "Economics Society", "Women in Business", "Sales Club", "Investment Club", "Real Estate Club", "Consulting Club", "Human Resources Club", "Information Systems Club", "Business Student Council"];
+function leadership(): Row[] {
+  const officers = ["President", "Vice president", "Treasurer", "Secretary"];
+  let returning: string[] = [];
+  return ["2024-25", "2025-26", "2026-27"].flatMap((year) => {
+    const rows = orgs.flatMap((org) =>
+      [...officers, ...Array(int(0, 3)).fill("Executive board member") as string[]].map((role) => ({
+        "Academic year": year,
+        "Student key": returning.length && rand() < 0.25 ? returning.splice(int(0, returning.length - 1), 1)[0] : student(),
+        Organization: org,
+        Role: role,
+      })),
+    );
+    returning = rows.map((r) => r["Student key"]);
+    return rows;
+  });
 }
 
 function stories(): Row[] {
@@ -231,6 +266,7 @@ export const sampleRows: Rows = {
   sbip_employers: sbipEmployers(),
   practicum: practicum(),
   sales_cert: salesCert(),
+  leadership: leadership(),
   global: global(),
   career: career(),
   stories: stories(),
