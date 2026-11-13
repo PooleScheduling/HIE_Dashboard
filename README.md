@@ -78,16 +78,45 @@ Use the office's shared Google account if there is one, so the app doesn't depen
 
 ## Connect the data
 
-In the Apps Script editor, open **Project Settings → Script properties** and add:
+Everything runs from one Google Sheet, the **HIE Data Hub**, kept in the HIE_Dashboard Drive folder. It lists every source and holds a copy of every imported row, so handing the project off means sharing that folder.
+
+**Setup (once):**
+1. Create an empty Google Sheet called "HIE Data Hub" inside the HIE_Dashboard folder.
+2. In the Apps Script editor, **Project Settings → Script properties**:
 
 | Property | Value |
 |---|---|
-| `KIOSK_SHEET_ID` | The ID from the Feedback Kiosk Data sheet URL (`/d/<ID>/edit`) |
-| `DATA_SHEET_ID` | The ID of the HIE Data Hub workbook (see below) |
-| `PHOTO_EDITORS` | Emails allowed to upload and place photos, comma-separated (optional) |
-| `USE_SAMPLE_ROWS` | `false` to stop using sample rows for datasets that aren't connected (optional) |
+| `DATA_SHEET_ID` | The Data Hub's ID (from its URL, `/d/<ID>/edit`) |
+| `APP_FOLDER_ID` | The HIE_Dashboard folder's ID (from its URL, `/folders/<ID>`). The app only writes inside it. |
+| `EDITORS` | Emails, comma-separated, who can import data and change photos (the deploying account always can) |
+| `TOUCHSCREEN_KEY` | The touchscreen wall feed's key. Ask whoever runs the wall; never put it in the code. |
+| `USE_SAMPLE_ROWS` | `false` to stop showing sample rows for datasets with no source yet (optional) |
 
-The account that deploys the web app needs view access to the kiosk sheet and edit access to the Data Hub.
+3. Run `setupDataHub` in the editor. It adds the tabs below and a starter Sources list. Existing tabs are left alone.
+4. Fill in the **Link** for each source in the Sources tab, then deploy a new version.
+
+**Data Hub tabs:**
+- **Sources:** one row per source: `Dataset | Source | Owner | Type | Link | Source tab | Year | Notes | Last imported | Rows`. Every link the app uses comes from here; nothing in the code points at a particular sheet. Types:
+  - `Live sheet`: read each time the report is built (the Hub kiosk).
+  - `Live feed`: the touchscreen wall's stats feed (Link = the `/api/hie-stats` address; key in `TOUCHSCREEN_KEY`).
+  - `Google Sheet import`: copied into the Data Hub when an editor clicks **Import** on the Contribute page. Use one row per file, with its Year (e.g. one row per summer's SBIP sheet).
+  - `File upload`: an export (Smartsheet, Suitable, …) uploaded on the Contribute page; the uploader asks which year it covers.
+- **One tab per dataset** (`SBIP Applicants`, `Practicum`, …): the imported rows, each tagged with `Year`, `Source` and `Imported at`. Every year stays, so charts show all years and compare the latest with the one before.
+- **Imports:** a log of every import (when, who, source, year, rows added, rows archived).
+- **Archive:** rows replaced by a newer import of the same source and year. Nothing is deleted without being archived first; Google's version history is a second safety net.
+- **Settings, Stories, Metrics, Team:** as below.
+
+**Rules:** sources are only ever read. The only file the app writes to is the Data Hub, and the code checks it's inside HIE_Dashboard first. The web app runs as the deploying account (`executeAs: USER_DEPLOYING`), so every viewer sees the same totals without needing access to the sheets; the source links on the dashboard open only for people Google already lets see them. Imports and photo changes are limited to the deploying account and `EDITORS`.
+
+**Permissions (appsscript.json):** `spreadsheets` (read sources, write the Data Hub), `drive.readonly` (check folders, read photos), `drive.file` (create photos), `userinfo.email`, `script.external_request` (the wall feed). Google can't limit writing to one folder, so that rule is in server/Code.js. Run `testDriveAccess` to check photo uploads work with `drive.file`.
+
+Older setups used `KIOSK_SHEET_ID` and `TOUCHSCREEN_URL` script properties; they still work if the Sources tab has no row for those datasets.
+
+### HIE Wall Usage (touchscreen wall)
+
+The HIE Wall tab copies the wall's own stats page (same tiles, charts, tables, date ranges and daily CSV). The wall's site keeps every tap (time, screen, button label, a random visit ID) and every QR scan (time, link name), with no personal information. The server reads all of it (`days=400`) each time the report is rebuilt and sends the page per-day totals only (`ReportData.wall`). This needs the `script.external_request` scope; after adding it, the deploying account approves the new permission once. If the feed can't be reached, the page uses sample rows.
+
+A few button labels carry a person's name (staff directory cards, Monthly Movers and Student Spotlight previews). Their taps still count, but `wallLabelHasName` in `src/analytics/reference.ts` keeps those labels out of "Most tapped". If the wall adds another button with names in it, add it there.
 
 ### How the numbers are made
 
@@ -100,9 +129,7 @@ Some groupings use public reference lists in `src/analytics/reference.ts`:
 - **Industry sector.** The 11 GICS sectors, plus "Government or nonprofit". Common shorthand like "IT" or "healthcare" is matched to the official name.
 - **Functional area.** A suggested list of job functions for internships, to confirm with the teams.
 
-### HIE Data Hub workbook
-
-Create a Google Sheet with one tab per dataset, named as in `datasets.ts` (`Packways`, `DeansScholars`, `SBIP Applicants`, `SBIP Employers`, `Practicum`, `Sales Certificate`, `Global`, `Career`, `Stories`, `Settings`). The first row is the column names from the template. Tabs can be added one at a time.
+### Settings, Stories, Metrics and Team tabs
 
 - **Settings:** `Setting | Value`. Set `Poole undergraduate enrollment` so the report can show the share of students with an HIE.
 - **Stories:** only rows with `Approved` = `TRUE` appear. Point a Google Form at this tab.

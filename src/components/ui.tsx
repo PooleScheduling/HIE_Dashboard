@@ -6,13 +6,13 @@ import { PhotoPicker } from "./PhotoPicker";
 
 const kindLabel: Record<SourceKind, string> = {
   live: "Live",
-  upload: "Uploaded",
+  upload: "Source file",
   report: "Report",
   waiting: "Not reported",
   sample: "Sample data",
 };
 
-export const statusText = { live: "Live", upload: "Uploaded", report: "Annual report", waiting: "Not reported", sample: "Sample data" } as const;
+export const statusText = { live: "Live", upload: "Source file", report: "Annual report", waiting: "Not reported", sample: "Sample data" } as const;
 
 // Each program area gets one NC State brand color. The colors are tokens in styles.css:
 // --a-<id> for text and icons (adjusted for dark mode), --b-<id> for solid color blocks.
@@ -173,8 +173,8 @@ export function SourcesNote({ metrics }: { metrics: Metric[] }) {
       <ul>
         {[...bySource.values()].map((p) => (
           <li key={p.label}>
-            <b>{p.label}</b>
-            {[p.updatedBy, p.kind === "sample" ? "sample rows" : p.updatedOn && `updated ${formatDate(p.updatedOn)}`].filter(Boolean).map((x) => ` · ${x}`).join("")}
+            {p.link ? <a href={p.link} target="_blank" rel="noopener noreferrer"><b>{p.label}</b></a> : <b>{p.label}</b>}
+            {[p.updatedBy, kindLabel[p.kind].toLowerCase(), p.kind !== "sample" && p.updatedOn && `updated ${formatDate(p.updatedOn)}`].filter(Boolean).map((x) => ` · ${x}`).join("")}
           </li>
         ))}
       </ul>

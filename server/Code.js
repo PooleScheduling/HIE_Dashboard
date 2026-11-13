@@ -5,31 +5,50 @@
 /**
  * Apps Script server for the HIE Engagement Report.
  *
- * How data flows:
- *   1. Read each dataset's rows from its tab in the HIE Data Hub workbook (DATA_SHEET_ID),
- *      and the Hub check-ins from the kiosk sheet (KIOSK_SHEET_ID). The datasets and their
- *      tab names are listed in src/analytics/datasets.ts.
- *   2. Datasets that aren't connected yet use the sample rows, so the report always renders.
- *      Set USE_SAMPLE_ROWS to "false" to show those areas as not reported instead.
- *   3. HIE.buildReport (src/analytics/build.ts, bundled as build/Analytics.js) works out every
- *      number, chart and data note from the rows. The browser runs the same code locally.
- *   4. Optional overrides: "Metrics" tab (replace a computed number by MetricId) and
- *      "Team" tab (people and their program areas).
+ * Everything starts from one Google Sheet, the HIE Data Hub (DATA_SHEET_ID), kept in the
+ * HIE_Dashboard Drive folder (APP_FOLDER_ID). Its tabs:
+ *   Sources   one row per data source: dataset, name, owner, type, link, year. Change a link or
+ *             add next year's file here; nothing in the code points at a particular sheet.
+ *   <dataset> copies of imported rows (one tab per dataset, e.g. "SBIP applicants"), each row
+ *             tagged with its Source, Year and when it was imported
+ *   Imports   a log of every import;  Archive  rows replaced by a newer import (never deleted)
+ *   Settings, Stories, Metrics, Team  as before
+ * Run setupDataHub() once from the editor to create these tabs in an empty sheet.
  *
- * Only totals ever leave this file. Student-level rows stay in the sheets.
+ * Source types (Sources tab, "Type" column):
+ *   Live sheet          read every time the report is built (e.g. the Hub kiosk sheet)
+ *   Live feed           the touchscreen wall's stats feed (key in TOUCHSCREEN_KEY)
+ *   Google Sheet import copied into the Data Hub when someone clicks Import on the Contribute page
+ *   File upload         a CSV export uploaded on the Contribute page (Smartsheet, Suitable, ...)
+ *
+ * Rules: sources are only ever read. The only file this app writes to is the Data Hub, and only
+ * after checking it's inside the HIE_Dashboard folder. An import replaces the rows from the same
+ * source and year; the old rows go to the Archive tab first. Only totals leave this file.
+ *
+ * The web app runs as the account that deployed it, so every viewer sees the same numbers
+ * without needing access to the sheets. Links to each source are shown on the dashboard; opening
+ * one still needs the viewer's own Google access.
  *
  * Script properties (Project Settings → Script properties):
- *   DATA_SHEET_ID     ID of the HIE Data Hub workbook (optional at first)
- *   KIOSK_SHEET_ID    ID of the Feedback Kiosk Data sheet (optional)
- *   USE_SAMPLE_ROWS   "false" to stop using sample rows for unconnected datasets
- *   PHOTO_EDITORS     Comma-separated emails allowed to upload and place photos.
- *                     If blank, only the account that deployed the app can.
- *   PHOTOS_FOLDER_ID  Drive folder for uploaded photos (created automatically on first upload)
+ *   DATA_SHEET_ID     ID of the HIE Data Hub sheet
+ *   APP_FOLDER_ID     ID of the HIE_Dashboard Drive folder (the app only writes inside it)
+ *   EDITORS           Comma-separated emails who can import data and change photos
+ *                     (the deploying account always can; PHOTO_EDITORS is read too)
+ *   TOUCHSCREEN_KEY   Key for the touchscreen wall's stats feed
+ *   USE_SAMPLE_ROWS   "false" to stop using sample rows for datasets with no source yet
+ *   PHOTOS_FOLDER_ID, PHOTO_SLOTS  set by the app
+ *   KIOSK_SHEET_ID, TOUCHSCREEN_URL  older setup; used only if the Sources tab has no row for them
  */
 
 const CACHE_KEY = "report-v1";
 const CACHE_SECONDS = 600; // 10 minutes
 const TZ = "America/New_York";
+
+const SOURCES_TAB = "Sources";
+const SOURCE_COLUMNS = ["Dataset", "Source", "Owner", "Type", "Link", "Source tab", "Year", "Notes", "Last imported", "Rows"];
+const IMPORTS_TAB = "Imports";
+const ARCHIVE_TAB = "Archive";
+const META_COLUMNS = ["Year", "Source", "Imported at"];
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile("index")
@@ -44,31 +63,45 @@ function getReport() {
   if (hit) return hit;
 
   const props = PropertiesService.getScriptProperties();
-  const dataId = props.getProperty("DATA_SHEET_ID");
-  const kioskId = props.getProperty("KIOSK_SHEET_ID");
   const useSamples = props.getProperty("USE_SAMPLE_ROWS") !== "false";
-  const book = dataId ? SpreadsheetApp.openById(dataId) : null;
+  const dataId = props.getProperty("DATA_SHEET_ID");
+  const book = dataId ? openSheet_(dataId) : null;
+  const sources = book ? readSources_(book) : [];
+
+  // Older setup, before the Sources tab: kiosk and wall links in script properties.
+  const legacy = (/** @type {string} */ dataset, /** @type {string} */ type, /** @type {string|null} */ link) =>
+    link && !sources.some((s) => s.Dataset === dataset && /^live/i.test(s.Type))
+      ? [{ Dataset: dataset, Source: dataset === "touchscreen" ? "HIE wall stats feed" : "Feedback Kiosk Data", Type: type, Link: link, "Source tab": "", Year: "", index: -1 }]
+      : [];
+  const all = [...sources, ...legacy("hub_checkins", "Live sheet", props.getProperty("KIOSK_SHEET_ID")), ...legacy("touchscreen", "Live feed", props.getProperty("TOUCHSCREEN_URL"))];
 
   /** @type {Record<string, Record<string, string>[]>} */ const rows = {};
   /** @type {Record<string, string>} */ const kinds = {};
+  /** @type {Record<string, string>} */ const links = {};
   for (const d of HIE.datasets) {
     /** @type {Record<string, string>[]} */ let r = [];
-    if (d.id === "hub_checkins") {
-      if (kioskId) {
-        const kiosk = SpreadsheetApp.openById(kioskId);
-        r = readTab_(kiosk.getSheetByName(d.sheetTab) || kiosk.getSheets()[0]);
-        if (r.length) kinds[d.id] = "live";
-      }
-    } else if (book) {
-      r = readTab_(book.getSheetByName(d.sheetTab));
-      if (r.length) kinds[d.id] = "upload";
+    for (const s of all.filter((x) => x.Dataset === d.id && /^live/i.test(x.Type))) {
+      const got = /feed/i.test(s.Type)
+        ? readTouchscreen_(s.Link, props.getProperty("TOUCHSCREEN_KEY") || "")
+        : readLiveSheet_(s.Link, s["Source tab"] || d.sheetTab);
+      if (got.length) { r = r.concat(got); kinds[d.id] = "live"; }
+      if (s.Link && !links[d.id]) links[d.id] = linkUrl_(s.Link, s.Type);
+    }
+    if (book) {
+      const copied = d.id === "hub_checkins" || d.id === "touchscreen" ? [] : readTab_(book.getSheetByName(d.sheetTab));
+      if (copied.length) { r = r.concat(copied); kinds[d.id] = kinds[d.id] || "upload"; }
+    }
+    if (!links[d.id]) {
+      const s = all.find((x) => x.Dataset === d.id && x.Link);
+      if (s) links[d.id] = linkUrl_(s.Link, s.Type);
     }
     rows[d.id] = r.length ? r : useSamples ? HIE.sampleRows[d.id] || [] : [];
   }
 
   const today = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
   /** @type {any} */
-  const report = HIE.buildReport(rows, { asOf: today, kinds });
+  const report = HIE.buildReport(rows, { asOf: today, kinds, links });
+  if (sources.length) report.sources = sourcesForReport_(sources, kinds);
   if (book) {
     overlayMetrics_(report, book.getSheetByName("Metrics"));
     overlayTeam_(report, book.getSheetByName("Team"));
@@ -79,42 +112,283 @@ function getReport() {
   return json;
 }
 
+// ---------- Data Hub: sources, imports, archive ----------
+
 /**
- * Called from the Contribute page. Appends validated CSV rows to the template's tab,
- * adding who uploaded and when.
- * @param {string} templateId
- * @param {string[][]} rows
+ * The Sources tab as objects, with each row's position so the front end can ask to import it.
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} book
  */
-function appendRows(templateId, rows) {
-  const dataId = PropertiesService.getScriptProperties().getProperty("DATA_SHEET_ID");
-  if (!dataId) throw new Error("The data workbook isn't connected yet (DATA_SHEET_ID is not set).");
-  const template = HIE.datasets.find((/** @type {any} */ d) => d.id === templateId);
-  if (!template || templateId === "hub_checkins") throw new Error("Unknown dataset: " + templateId);
-  /** @type {string[]} */
-  const columns = template.columns.filter((/** @type {any} */ c) => !c.optional).map((/** @type {any} */ c) => c.name);
-  if (!Array.isArray(rows) || rows.length === 0) throw new Error("No rows to add.");
-  if (rows.length > 5000) throw new Error("That file has more than 5,000 rows. Split it and upload again.");
+function readSources_(book) {
+  return readTab_(book.getSheetByName(SOURCES_TAB))
+    .map((r, i) => Object.assign({}, r, { index: i }))
+    .filter((r) => r.Dataset && r.Type);
+}
 
+/** The Sources tab as the report's sources list (names, links, status; no rows). */
+function sourcesForReport_(/** @type {any[]} */ sources, /** @type {Record<string, string>} */ kinds) {
+  const ds = (/** @type {string} */ id) => HIE.datasets.find((/** @type {any} */ d) => d.id === id);
+  return sources.map((s) => {
+    const d = ds(s.Dataset);
+    const live = /^live/i.test(s.Type);
+    return {
+      id: String(s.index),
+      dataset: s.Dataset,
+      name: s.Source || (d ? d.name : s.Dataset),
+      owner: s.Owner || (d ? d.owner : ""),
+      feeds: d ? d.name : s.Dataset,
+      kind: live ? (kinds[s.Dataset] === "live" ? "live" : "waiting") : s["Last imported"] ? "upload" : "waiting",
+      howItGetsIn: s.Type,
+      type: s.Type,
+      link: s.Link ? linkUrl_(s.Link, s.Type) : undefined,
+      year: s.Year || undefined,
+      lastUpdated: s["Last imported"] ? String(s["Last imported"]).slice(0, 10) : undefined,
+      rows: s.Rows ? Number(s.Rows) : undefined,
+    };
+  });
+}
+
+/** A link a person can open. The wall's feed needs a key, so it points at its stats page. */
+function linkUrl_(/** @type {string} */ link, /** @type {string} */ type) {
+  const l = String(link).trim();
+  if (/feed/i.test(type)) return l.replace(/\/api\/hie-stats.*$/, "/stats.html");
+  if (/^https?:/i.test(l)) return l;
+  return "https://docs.google.com/spreadsheets/d/" + l + "/edit";
+}
+
+/** Sheet ID from a link or a bare ID. */
+function sheetId_(/** @type {string} */ link) {
+  const m = /\/d\/([a-zA-Z0-9_-]+)/.exec(String(link));
+  return m ? m[1] : String(link).trim();
+}
+
+/**
+ * Reads a source sheet. Read only: nothing here changes the source.
+ * @param {string} link
+ * @param {string} tab
+ */
+function readLiveSheet_(link, tab) {
+  const book = link ? openSheet_(sheetId_(link)) : null;
+  if (!book) return [];
+  return readTab_(book.getSheetByName(tab) || book.getSheets()[0]);
+}
+
+/**
+ * Who can import data and change photos: the deploying account, plus EDITORS / PHOTO_EDITORS.
+ */
+function canEdit_() {
+  const props = PropertiesService.getScriptProperties();
+  const me = (Session.getActiveUser().getEmail() || "").toLowerCase();
+  const owner = (Session.getEffectiveUser().getEmail() || "").toLowerCase();
+  const list = [props.getProperty("EDITORS"), props.getProperty("PHOTO_EDITORS")].join(",")
+    .toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+  return !!me && (me === owner || list.includes(me));
+}
+
+/** Called by the front end: can this viewer import data and change photos? */
+function getAccess() {
+  return JSON.stringify({ canEdit: canEdit_() });
+}
+
+/**
+ * The Data Hub, opened for writing. It's the only file the app writes to, and only if it sits
+ * inside the HIE_Dashboard folder.
+ */
+function writableHub_() {
+  const id = PropertiesService.getScriptProperties().getProperty("DATA_SHEET_ID");
+  if (!id) throw new Error("The Data Hub isn't connected yet (DATA_SHEET_ID is not set).");
+  if (!insideAppFolder_(DriveApp.getFileById(id))) throw new Error("The Data Hub must be inside the HIE_Dashboard folder before the app writes to it.");
+  return SpreadsheetApp.openById(id);
+}
+
+/**
+ * Called from the Contribute page: copies a Google Sheet source (Type "Google Sheet import")
+ * into the Data Hub. The source is only read.
+ * @param {string} sourceId  the source's row position, from the report's sources list
+ */
+function importSource(sourceId) {
+  if (!canEdit_()) throw new Error("You don't have permission to import data.");
+  const book = writableHub_();
+  const s = readSources_(book).find((x) => String(x.index) === String(sourceId));
+  if (!s || !/google sheet/i.test(s.Type)) throw new Error("That source can't be imported from a link.");
+  const d = datasetFor_(s.Dataset);
+  const src = openSheet_(sheetId_(s.Link));
+  if (!src) throw new Error("Couldn't open the source sheet. Check the link and that the dashboard's account can view it.");
+  const sheet = src.getSheetByName(s["Source tab"] || "") || src.getSheets()[0];
+  return JSON.stringify(replaceBatch_(book, d, s, s.Year || "All years", sheet.getDataRange().getDisplayValues()));
+}
+
+/**
+ * Called from the Contribute page: imports an uploaded CSV (already parsed in the browser)
+ * for a "File upload" source.
+ * @param {string} sourceId
+ * @param {string} year  e.g. "2026-27" or "Summer 2027"
+ * @param {string[][]} table  header row plus data rows
+ */
+function importUpload(sourceId, year, table) {
+  if (!canEdit_()) throw new Error("You don't have permission to import data.");
+  const book = writableHub_();
+  const s = readSources_(book).find((x) => String(x.index) === String(sourceId));
+  if (!s || /^live/i.test(s.Type)) throw new Error("Pick a source that takes uploads.");
+  return JSON.stringify(replaceBatch_(book, datasetFor_(s.Dataset), s, String(year || s.Year || "All years").slice(0, 40), table));
+}
+
+function datasetFor_(/** @type {string} */ id) {
+  const d = HIE.datasets.find((/** @type {any} */ x) => x.id === id);
+  if (!d || d.cadence === "Live") throw new Error("Unknown dataset in the Sources tab: " + id);
+  return d;
+}
+
+/**
+ * Puts one import into the Data Hub: checks the columns, archives the rows from the same source
+ * and year, writes the new ones, and logs it. Nothing is deleted without being archived first.
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} book
+ * @param {any} d  dataset
+ * @param {any} s  Sources row
+ * @param {string} year
+ * @param {string[][]} table
+ */
+function replaceBatch_(book, d, s, year, table) {
+  if (!Array.isArray(table) || table.length < 2) throw new Error("There are no data rows under the header.");
+  if (table.length > 20001) throw new Error("That's more than 20,000 rows. Split it by year and import each part.");
+  /** @type {string[]} */ const columns = d.columns.map((/** @type {any} */ c) => c.name);
+  const required = d.columns.filter((/** @type {any} */ c) => !c.optional).map((/** @type {any} */ c) => c.name);
+  const head = table[0].map((h) => String(h).trim().toLowerCase());
+  const missing = required.filter((c) => !head.includes(c.toLowerCase()));
+  if (missing.length) throw new Error("The source is missing these columns: " + missing.join(", ") + ".");
+  const idx = columns.map((c) => head.indexOf(c.toLowerCase()));
+  const when = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm");
+  const sourceName = s.Source || d.name;
+  const fresh = table.slice(1)
+    .filter((r) => r.some((c) => String(c).trim() !== ""))
+    .map((r) => idx.map((i) => (i < 0 ? "" : String(r[i] ?? "").slice(0, 500))).concat([year, sourceName, when]));
+
+  /** @type {string[][]} */ let replaced = [];
   const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  lock.waitLock(30000);
   try {
-    const book = SpreadsheetApp.openById(dataId);
-    const tab = book.getSheetByName(template.sheetTab) || book.insertSheet(template.sheetTab);
-    const header = [...columns, "Uploaded by", "Uploaded at"];
-    if (tab.getLastRow() === 0) tab.appendRow(header);
+    const header = [...columns, ...META_COLUMNS];
+    const tab = book.getSheetByName(d.sheetTab) || book.insertSheet(d.sheetTab);
+    const existing = tab.getLastRow() > 0 ? tab.getDataRange().getDisplayValues() : [header];
+    const oldHead = existing[0];
+    const yi = oldHead.indexOf("Year"), si = oldHead.indexOf("Source");
+    const body = existing.slice(1);
+    replaced = body.filter((r) => r[yi] === year && r[si] === sourceName);
+    const kept = body.filter((r) => !(r[yi] === year && r[si] === sourceName))
+      .map((r) => header.map((h) => (oldHead.indexOf(h) < 0 ? "" : r[oldHead.indexOf(h)])));
 
-    const who = Session.getActiveUser().getEmail() || "unknown";
-    const when = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH:mm");
-    const clean = rows.map((r) => columns.map((_, i) => String(r[i] ?? "").slice(0, 500)).concat([who, when]));
-    tab.getRange(tab.getLastRow() + 1, 1, clean.length, header.length).setValues(clean);
+    if (replaced.length) {
+      const archive = book.getSheetByName(ARCHIVE_TAB) || book.insertSheet(ARCHIVE_TAB);
+      if (archive.getLastRow() === 0) archive.appendRow(["Dataset", "Source", "Year", "Archived at", "Row (JSON)"]);
+      const out = replaced.map((r) => [d.id, sourceName, year, when, JSON.stringify(Object.fromEntries(oldHead.map((h, i) => [h, r[i]])))]);
+      archive.getRange(archive.getLastRow() + 1, 1, out.length, 5).setValues(out);
+    }
+    const all = [header, ...kept, ...fresh];
+    tab.getRange(1, 1, all.length, header.length).setValues(all);
+    const extra = tab.getLastRow() - all.length;
+    if (extra > 0) tab.getRange(all.length + 1, 1, extra, tab.getLastColumn()).clearContent();
+
+    const log = book.getSheetByName(IMPORTS_TAB) || book.insertSheet(IMPORTS_TAB);
+    if (log.getLastRow() === 0) log.appendRow(["When", "Who", "Dataset", "Source", "Year", "Rows added", "Rows archived"]);
+    log.appendRow([when, Session.getActiveUser().getEmail() || "unknown", d.id, sourceName, year, fresh.length, replaced.length]);
+
+    const srcTab = book.getSheetByName(SOURCES_TAB);
+    if (srcTab && s.index >= 0) {
+      const h = srcTab.getRange(1, 1, 1, srcTab.getLastColumn()).getValues()[0].map(String);
+      const li = h.indexOf("Last imported"), ri = h.indexOf("Rows");
+      if (li >= 0) srcTab.getRange(s.index + 2, li + 1).setValue(when);
+      if (ri >= 0) srcTab.getRange(s.index + 2, ri + 1).setValue(fresh.length);
+    }
   } finally {
     lock.releaseLock();
   }
   CacheService.getScriptCache().remove(CACHE_KEY);
-  return { added: rows.length };
+  return { added: fresh.length, archived: replaced.length, year };
+}
+
+/**
+ * Run once from the editor. Fills an empty Data Hub sheet (DATA_SHEET_ID, inside HIE_Dashboard)
+ * with the tabs the app uses and a starter Sources list. Existing tabs are left alone.
+ */
+function setupDataHub() {
+  const book = writableHub_();
+  const props = PropertiesService.getScriptProperties();
+  /** @param {string} name @param {string[]} header */
+  const ensure = (name, header) => {
+    let tab = book.getSheetByName(name);
+    if (tab) return null;
+    tab = book.insertSheet(name);
+    tab.appendRow(header);
+    tab.setFrozenRows(1);
+    tab.getRange(1, 1, 1, header.length).setFontWeight("bold");
+    return tab;
+  };
+  const sources = ensure(SOURCES_TAB, SOURCE_COLUMNS);
+  if (sources) {
+    /** @type {string[][]} */ const starter = [];
+    for (const d of HIE.datasets) {
+      if (d.id === "settings" || d.id === "stories") continue;
+      const type = d.id === "hub_checkins" ? "Live sheet" : d.id === "touchscreen" ? "Live feed" : "File upload";
+      const link = d.id === "hub_checkins" ? props.getProperty("KIOSK_SHEET_ID") || "" : d.id === "touchscreen" ? props.getProperty("TOUCHSCREEN_URL") || "" : "";
+      starter.push([d.id, d.likelySource.split(" (")[0], d.owner, type, link, d.id === "hub_checkins" ? d.sheetTab : "", "", d.description, "", ""]);
+    }
+    sources.getRange(2, 1, starter.length, SOURCE_COLUMNS.length).setValues(starter);
+  }
+  for (const d of HIE.datasets) {
+    if (d.cadence === "Live") continue;
+    ensure(d.sheetTab, [...d.columns.map((/** @type {any} */ c) => c.name), ...(d.id === "settings" || d.id === "stories" ? [] : META_COLUMNS)]);
+  }
+  ensure(IMPORTS_TAB, ["When", "Who", "Dataset", "Source", "Year", "Rows added", "Rows archived"]);
+  ensure(ARCHIVE_TAB, ["Dataset", "Source", "Year", "Archived at", "Row (JSON)"]);
+  const first = book.getSheets()[0];
+  if (first.getName() !== SOURCES_TAB && first.getLastRow() === 0 && book.getSheets().length > 1) book.deleteSheet(first);
+  console.log("Data Hub ready: %s", book.getUrl());
+}
+
+// ---------- touchscreen wall ----------
+
+/**
+ * Reads the wall's taps and QR scans from its read-only stats feed and turns them into rows
+ * (Time, Type, Label, Screen, Visit). The feed has no personal information. If it can't be
+ * reached, returns no rows, so the report falls back to the Touchscreen tab or sample rows.
+ * @param {string} url
+ * @param {string} key
+ * @returns {Record<string, string>[]}
+ */
+function readTouchscreen_(url, key) {
+  try {
+    const res = UrlFetchApp.fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "days=400", {
+      headers: { "x-stats-key": key },
+      muteHttpExceptions: true,
+    });
+    if (res.getResponseCode() !== 200) {
+      console.warn("Touchscreen feed returned %s", res.getResponseCode());
+      return [];
+    }
+    /** @type {{ taps?: { t: number, s?: string, l?: string, k?: string }[], qr?: { t: number, id?: string }[] }} */
+    const data = JSON.parse(res.getContentText());
+    const when = (/** @type {number} */ t) => Utilities.formatDate(new Date(t), TZ, "yyyy-MM-dd'T'HH:mm:ss");
+    return [
+      ...(data.taps || []).map((x) => ({ Time: when(x.t), Type: "Tap", Label: String(x.l || ""), Screen: String(x.s || ""), Visit: String(x.k || "") })),
+      ...(data.qr || []).map((x) => ({ Time: when(x.t), Type: "QR scan", Label: String(x.id || ""), Screen: "", Visit: "" })),
+    ];
+  } catch (e) {
+    console.warn("Couldn't read the touchscreen feed: %s", e);
+    return [];
+  }
 }
 
 // ---------- overlays ----------
+
+/**
+ * Opens a sheet by ID, or returns null if the dashboard's account can't open it. Callers only read.
+ * @param {string} id
+ */
+function openSheet_(id) {
+  try { return SpreadsheetApp.openById(id); } catch (e) {
+    console.warn("Can't open sheet %s: %s", id, e);
+    return null;
+  }
+}
 
 /** Reads a tab into objects keyed by header row. */
 function readTab_(/** @type {GoogleAppsScript.Spreadsheet.Sheet | null} */ sheet) {
@@ -186,22 +460,63 @@ function overlayTeam_(/** @type {any} */ report, /** @type {any} */ sheet) {
 }
 
 // ---------- photos ----------
-// Photos live in a Drive folder in the deploying account. Which page uses which photo
-// is kept in the PHOTO_SLOTS script property as JSON: { "<page or program id>": "<file id>" }.
+// Photos live in "HIE Report Photos" inside the HIE_Dashboard Drive folder (APP_FOLDER_ID).
+// Which page uses which photo is kept in the PHOTO_SLOTS script property as JSON:
+// { "<page or program id>": "<file id>" }. The app never writes outside HIE_Dashboard.
 
-function canEditPhotos_() {
-  const props = PropertiesService.getScriptProperties();
-  const me = (Session.getActiveUser().getEmail() || "").toLowerCase();
-  const owner = (Session.getEffectiveUser().getEmail() || "").toLowerCase();
-  const editors = String(props.getProperty("PHOTO_EDITORS") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
-  return !!me && (me === owner || editors.includes(me));
+const PHOTOS_FOLDER_NAME = "HIE Report Photos";
+
+/** Photos follow the same rule as imports: the deploying account plus EDITORS / PHOTO_EDITORS. */
+const canEditPhotos_ = () => canEdit_();
+
+/** The HIE_Dashboard folder. Every write the app makes goes inside it. */
+function appFolder_() {
+  const id = PropertiesService.getScriptProperties().getProperty("APP_FOLDER_ID");
+  if (!id) throw new Error("APP_FOLDER_ID isn't set. Add the HIE_Dashboard folder's ID in Script properties.");
+  return DriveApp.getFolderById(id);
 }
 
-function photosFolder_() {
+/**
+ * True if a file or folder sits somewhere inside the HIE_Dashboard folder.
+ * @param {GoogleAppsScript.Drive.File | GoogleAppsScript.Drive.Folder} item
+ */
+function insideAppFolder_(item) {
+  const root = PropertiesService.getScriptProperties().getProperty("APP_FOLDER_ID");
+  if (!root) return false;
+  /** @type {any[]} */ let level = [item];
+  for (let depth = 0; depth < 20 && level.length; depth++) {
+    /** @type {any[]} */ const next = [];
+    for (const f of level) {
+      if (f.getId() === root) return true;
+      const parents = f.getParents();
+      while (parents.hasNext()) next.push(parents.next());
+    }
+    level = next;
+  }
+  return false;
+}
+
+/**
+ * The photos folder. Reading never creates anything; for an upload (create = true) it finds or
+ * makes "HIE Report Photos" inside HIE_Dashboard.
+ * @param {boolean} [create]
+ */
+function photosFolder_(create) {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty("PHOTOS_FOLDER_ID");
-  if (id) return DriveApp.getFolderById(id);
-  const folder = DriveApp.createFolder("HIE Report Photos");
+  if (id) {
+    try {
+      const f = DriveApp.getFolderById(id);
+      if (insideAppFolder_(f)) return f;
+      console.warn("The saved photos folder isn't inside HIE_Dashboard.");
+    } catch (e) {
+      console.warn("Can't open the photos folder: %s", e);
+    }
+  }
+  if (!create) return null;
+  const app = appFolder_();
+  const found = app.getFoldersByName(PHOTOS_FOLDER_NAME);
+  const folder = found.hasNext() ? found.next() : app.createFolder(PHOTOS_FOLDER_NAME);
   props.setProperty("PHOTOS_FOLDER_ID", folder.getId());
   return folder;
 }
@@ -223,11 +538,11 @@ function photoItem_(f) {
 
 /** Called by the front end. Returns the photo gallery, page assignments and whether this viewer can edit. */
 function getPhotos() {
-  const props = PropertiesService.getScriptProperties();
   const slots = photoSlots_();
   /** @type {any[]} */ const photos = [];
-  if (props.getProperty("PHOTOS_FOLDER_ID")) {
-    const files = photosFolder_().getFiles();
+  const folder = photosFolder_(false);
+  if (folder) {
+    const files = folder.getFiles();
     while (files.hasNext()) {
       const f = files.next();
       if (!f.isTrashed() && f.getSize() > 0 && String(f.getMimeType()).startsWith("image/")) photos.push(photoItem_(f));
@@ -254,7 +569,7 @@ function uploadPhoto(name, dataUrl) {
   if (bytes.length > 5 * 1024 * 1024) throw new Error("That photo is larger than 5 MB.");
   const ext = type === "image/png" ? ".png" : type === "image/webp" ? ".webp" : ".jpg";
   const blob = Utilities.newBlob(bytes, type, (String(name).slice(0, 120) || "photo") + ext);
-  const file = photosFolder_().createFile(blob);
+  const file = /** @type {GoogleAppsScript.Drive.Folder} */ (photosFolder_(true)).createFile(blob);
   if (!file.getSize()) {
     file.setTrashed(true);
     throw new Error("Drive saved an empty file. Please try again.");
@@ -266,7 +581,8 @@ function uploadPhoto(name, dataUrl) {
 function deletePhoto(id) {
   if (!canEditPhotos_()) throw new Error("You don't have permission to delete photos.");
   const file = DriveApp.getFileById(id);
-  if (!file.getParents().hasNext() || file.getParents().next().getId() !== photosFolder_().getId()) throw new Error("Unknown photo.");
+  const folder = photosFolder_(false);
+  if (!folder || !file.getParents().hasNext() || file.getParents().next().getId() !== folder.getId() || !insideAppFolder_(file)) throw new Error("Unknown photo.");
   file.setTrashed(true);
   const slots = photoSlots_();
   for (const k of Object.keys(slots)) if (slots[k] === id) delete slots[k];
@@ -291,4 +607,50 @@ function setPhotoSlot(slot, id) {
 /** Run this once from the Apps Script editor after changing sheets, to see fresh numbers right away. */
 function clearCache() {
   CacheService.getScriptCache().remove(CACHE_KEY);
+}
+
+/**
+ * Run from the Apps Script editor (select testTouchscreen, then Run) to check the wall's feed.
+ * The log says what's wrong, if anything, and the report cache is cleared so the next page
+ * load reads the feed again.
+ */
+function testTouchscreen() {
+  const props = PropertiesService.getScriptProperties();
+  const url = props.getProperty("TOUCHSCREEN_URL");
+  const key = props.getProperty("TOUCHSCREEN_KEY");
+  if (!url) return console.log("TOUCHSCREEN_URL isn't set in Script properties (check the spelling).");
+  if (!key) return console.log("TOUCHSCREEN_KEY isn't set in Script properties.");
+  const res = UrlFetchApp.fetch(url + (url.indexOf("?") < 0 ? "?" : "&") + "days=400", { headers: { "x-stats-key": key }, muteHttpExceptions: true });
+  const code = res.getResponseCode();
+  if (code === 401) return console.log("The feed says the key is wrong (401). Check TOUCHSCREEN_KEY.");
+  if (code !== 200) return console.log("The feed returned %s. Check TOUCHSCREEN_URL; it should end in /api/hie-stats.", code);
+  const data = JSON.parse(res.getContentText());
+  clearCache();
+  console.log("Feed works: %s taps and %s QR scans.", (data.taps || []).length, (data.qr || []).length);
+
+  // Build the report with the code saved in this editor, the same way the web app does.
+  const report = JSON.parse(getReport());
+  const wall = report.wall;
+  if (!wall) return console.log("The report has no wall data. Analytics.gs is probably out of date: paste build/Analytics.js again.");
+  const visits = wall.days.reduce((/** @type {number} */ a, /** @type {any} */ d) => a + d.visits[0] + d.visits[1] + d.visits[2], 0);
+  console.log("Report built from %s data: %s visits on record.", wall.source.kind === "live" ? "LIVE" : "SAMPLE", visits);
+  if (wall.source.kind === "live") {
+    console.log("The saved code is fine. If the web app still shows sample numbers, it's on an old version: Deploy → Manage deployments → pencil → Version: New version → Deploy.");
+  } else {
+    console.log("The saved code still uses sample rows. Paste build/Code.js into Code.gs and build/Analytics.js into Analytics.gs, save, and run this again.");
+  }
+}
+
+/**
+ * Run from the Apps Script editor to check the Drive setup: reads the HIE_Dashboard folder,
+ * then creates and removes a small test file in the photos folder.
+ */
+function testDriveAccess() {
+  const app = appFolder_();
+  console.log("Can read HIE_Dashboard: %s", app.getName());
+  const folder = /** @type {GoogleAppsScript.Drive.Folder} */ (photosFolder_(true));
+  console.log("Photos folder: %s (inside HIE_Dashboard: %s)", folder.getName(), insideAppFolder_(folder));
+  const f = folder.createFile("drive-access-test.txt", "Test file from the HIE dashboard. Safe to delete.");
+  f.setTrashed(true);
+  console.log("Created and removed a test file. Photo uploads will work for %s.", Session.getActiveUser().getEmail());
 }

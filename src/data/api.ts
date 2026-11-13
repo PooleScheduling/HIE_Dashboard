@@ -31,10 +31,26 @@ export async function getReport(): Promise<ReportData> {
   return structuredClone(mockReport);
 }
 
-export async function appendRows(templateId: string, rows: string[][]): Promise<{ added: number }> {
-  if (isAppsScript()) return callServer("appendRows", templateId, rows);
-  await new Promise((r) => setTimeout(r, 300)); // simulate a round trip in local dev
-  return { added: rows.length };
+// ---------- imports into the Data Hub ----------
+// Deployed, these copy rows into the Data Hub sheet (sources are only read). Locally they're simulated.
+export type ImportResult = { added: number; archived: number; year: string };
+
+export async function importUpload(sourceId: string, year: string, table: string[][]): Promise<ImportResult> {
+  if (isAppsScript()) return JSON.parse(await callServer<string>("importUpload", sourceId, year, table)) as ImportResult;
+  await new Promise((r) => setTimeout(r, 300));
+  return { added: table.length - 1, archived: 0, year };
+}
+
+export async function importSource(sourceId: string): Promise<ImportResult> {
+  if (isAppsScript()) return JSON.parse(await callServer<string>("importSource", sourceId)) as ImportResult;
+  await new Promise((r) => setTimeout(r, 300));
+  return { added: 0, archived: 0, year: "All years" };
+}
+
+// Can this viewer import data? (Locally, always.)
+export async function getAccess(): Promise<{ canEdit: boolean }> {
+  if (isAppsScript()) return JSON.parse(await callServer<string>("getAccess")) as { canEdit: boolean };
+  return { canEdit: true };
 }
 
 // ---------- photos ----------
