@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import type { Chart as ChartData, ReportData, Section, SurveySummary } from "../data/types";
 
 // A height that fits each kind of chart.
-export function chartHeight(c: ChartData): number {
+export function chartHeight(input: ChartData): number {
+  const c = effectiveChart(input);
   const n = c.categories.length;
   switch (c.kind) {
     case "donut": return 270;
@@ -15,7 +16,7 @@ export function chartHeight(c: ChartData): number {
     default: return c.orientation === "horizontal" ? Math.max(180, n * 26 + 40) : 230;
   }
 }
-import { Chart } from "../components/Chart";
+import { Chart, effectiveChart } from "../components/Chart";
 import { DownloadMenu, Fact, Reveal, SourcesNote, SplitHeader, accentStyle, formatDate } from "../components/ui";
 import { Icon, iconFor } from "../components/Icon";
 import { metricsCsv, printPage, saveBlob, saveCsv, sectionMetrics, slug } from "../lib/download";

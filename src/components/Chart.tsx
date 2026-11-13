@@ -26,7 +26,16 @@ const exportColors: Colors = {
 // Categorical colors for donuts and treemaps: NC State's brand palette, in a fixed order.
 const PALETTE = ["#cc0000", "#4156a1", "#008473", "#d14905", "#6f7d1c", "#427e93", "#990000", "#7a7a7a"];
 
-function chartOption(chart: ChartData, c: Colors, forExport: boolean, highlight?: number, clickable = false) {
+// A treemap only works when every box can show its name and number. With long names or many
+// items, the same data is drawn as ranked horizontal bars so every label is readable.
+export function effectiveChart(chart: ChartData): ChartData {
+  if (chart.kind !== "treemap") return chart;
+  const fits = chart.categories.length <= 10 && chart.categories.every((k) => k.length <= 18);
+  return fits ? chart : { ...chart, kind: "bar", orientation: "horizontal" };
+}
+
+function chartOption(input: ChartData, c: Colors, forExport: boolean, highlight?: number, clickable = false) {
+  const chart = effectiveChart(input);
   const special = specialOption(chart, c, forExport);
   if (special) return special;
   return barLineOption(chart, c, forExport, highlight, clickable);
@@ -82,7 +91,7 @@ function specialOption(chart: ChartData, c: Colors, forExport: boolean) {
       series: [{
         type: "treemap" as const, top, left: 0, right: 0, bottom: 0, roam: false, nodeClick: false as const, breadcrumb: { show: false },
         itemStyle: { borderColor: c.surface, borderWidth: 2, gapWidth: 2 },
-        label: { color: "#ffffff", fontFamily: c.font, fontSize: 12, overflow: "break" as const, formatter: (p: { name: string; value: number }) => `{n|${p.value}}\n${p.name}`, rich: { n: { fontSize: 18, fontWeight: "bold" as const, color: "#ffffff", lineHeight: 22 } } },
+        label: { color: "#ffffff", fontFamily: c.font, fontSize: 12, overflow: "truncate" as const, ellipsis: "…", formatter: (p: { name: string; value: number }) => `{n|${p.value}}\n${p.name}`, rich: { n: { fontSize: 18, fontWeight: "bold" as const, color: "#ffffff", lineHeight: 22 } } },
         data: data.filter((d) => d.value > 0).map((d, i) => ({ ...d, itemStyle: { color: PALETTE[i % PALETTE.length] } })),
       }],
     };
