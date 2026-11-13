@@ -595,3 +595,61 @@ label.btn { cursor: pointer; }
 .survey-tab:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
 .survey-panel { display: grid; gap: 16px; animation: swap .3s ease both; }
 @media print { .survey-panel { display: grid; } }
+
+/* ---------- Front page: a little more art ---------- */
+/* Headline numbers get a hand-drawn swash in their program color. */
+.report .facts .fact-n::after {
+  content: ""; display: block; width: min(70%, 220px); height: 12px; margin-top: 10px; background: var(--accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12'%3E%3Cpath d='M2 8 C 40 2, 70 12, 110 6 S 170 3, 198 7' fill='none' stroke='black' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat center / 100% 100%;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12'%3E%3Cpath d='M2 8 C 40 2, 70 12, 110 6 S 170 3, 198 7' fill='none' stroke='black' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat center / 100% 100%;
+}
+
+/* Every student as a dot */
+.dots-panel { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 32px; padding: clamp(20px, 3vw, 32px); border-top: 4px solid var(--red); }
+.dots-main { display: grid; gap: 14px; align-content: start; }
+.dots-main h2 { font-size: clamp(20px, 2vw, 26px); font-weight: 400; }
+.dots-big { display: block; font-size: clamp(56px, 7vw, 88px); font-weight: 700; line-height: 1; color: var(--red-ink); letter-spacing: -.02em; }
+.dots-art { width: 100%; height: auto; display: block; }
+.dots-art circle { transition: opacity .25s, transform .25s; transform-box: fill-box; transform-origin: center; animation: dotin .5s cubic-bezier(.2, .7, .2, 1) both; }
+.dot-g.s0 circle, .dot-key.s0 { fill: var(--g3); background: var(--g3); }
+.dot-g.s1 circle, .dot-key.s1 { fill: var(--g2); background: var(--g2); }
+.dot-g.s2 circle, .dot-key.s2 { fill: var(--g1); background: var(--g1); }
+.dot-g.s3 circle, .dot-key.s3 { fill: var(--g0); background: var(--g0); }
+.dots-art.focusing .dot-g:not(.on) circle { opacity: .18; }
+.dots-art.focusing .dot-g.on circle { transform: scale(1.2); }
+@keyframes dotin { from { opacity: 0; transform: scale(.2); } to { opacity: 1; transform: none; } }
+.dots-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.dots-legend button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; padding: 2px 0; border-bottom: 2px solid transparent; }
+.dots-legend button.on { border-bottom-color: var(--ink); }
+.dots-legend button:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
+.dot-key { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+@media (max-width: 860px) { .dots-panel { grid-template-columns: 1fr; } }
+
+/* Program areas as poster blocks in each program's color */
+.report .card { position: relative; overflow: hidden; background: var(--block); border-top: 0; color: #ffffff; transition: transform .25s, box-shadow .25s, filter .25s; }
+.report .card:hover { background: var(--block); transform: translateY(-4px) rotate(-.4deg); filter: brightness(1.06); }
+.report .card-art { position: absolute; right: -24px; bottom: -28px; color: #ffffff; opacity: .13; transform: rotate(-12deg); transition: transform .5s cubic-bezier(.2, .7, .2, 1), opacity .3s; pointer-events: none; }
+.report .card:hover .card-art { transform: rotate(0deg) scale(1.08); opacity: .2; }
+.report .card-ic, .report .card-h, .report .card-n, .report .cta { color: #ffffff; position: relative; }
+.report .card-n { font-size: clamp(48px, 5vw, 64px); letter-spacing: -.02em; }
+.report .card-t { color: var(--on-block-muted); position: relative; }
+.report .card .mini { position: relative; }
+.report .card .mini-bar { fill: rgba(255, 255, 255, .42); }
+.report .card .mini-peak { fill: #ffffff; }
+.report .card:hover .mini-bar { fill: rgba(255, 255, 255, .6); }
+.report .card .mini-cap { color: var(--on-block-muted); }
+.report .card:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+
+/* The story callout gets an oversized quote mark */
+.report .callout-block { position: relative; overflow: hidden; }
+.report .callout-block::before { content: "\201C"; position: absolute; top: -.18em; left: .04em; font-family: var(--f-serif); font-size: clamp(180px, 22vw, 320px); line-height: 1; color: #ffffff; opacity: .12; pointer-events: none; }
+
+@media print {
+  .report .card, .dots-art, .dot-key, .report .callout-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .dots-art circle { animation: none; }
+  .report .card { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dots-art circle { animation: none; }
+  .report .card:hover { transform: none; }
+}

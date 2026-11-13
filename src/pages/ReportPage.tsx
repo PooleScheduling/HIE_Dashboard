@@ -56,13 +56,14 @@ export function ReportPage({ data, go }: { data: ReportData; go: Go }) {
         </div>
       </LabeledSection>
 
-      <GoalProgress c={data.coverage} />
+      <StudentDots c={data.coverage} />
 
       <LabeledSection label="Program areas" title="Every way Poole students get there">
         <div className="cards">
           {withData.map((s, i) => (
             <Reveal key={s.id} delay={(i % 3) * 70}>
               <button className="card" style={accentStyle(s.id)} onClick={() => go("programs", `p-${s.id}`)}>
+                <span className="card-art" aria-hidden="true"><Icon name={iconFor(s.id)} size={150} /></span>
                 <span className="card-ic"><Icon name={iconFor(s.id)} size={30} /></span>
                 <span className="card-h">{s.title}</span>
                 <span className="card-n">{s.cardMetric && <CountUp value={s.cardMetric.value} />}</span>
@@ -75,6 +76,7 @@ export function ReportPage({ data, go }: { data: ReportData; go: Go }) {
           {hubMetric && (
             <Reveal delay={(withData.length % 3) * 70}>
               <button className="card" style={accentStyle("hub")} onClick={() => go("hub")}>
+                <span className="card-art" aria-hidden="true"><Icon name="pin" size={150} /></span>
                 <span className="card-ic"><Icon name="pin" size={30} /></span>
                 <span className="card-h">Poole Undergraduate Student Hub</span>
                 <span className="card-n"><CountUp value={hubMetric.value} /></span>
@@ -145,41 +147,54 @@ function Spotlight({ stories, featuredId, go }: { stories: Story[]; featuredId?:
   );
 }
 
-// How close we are to the goal: undergraduates with 1, 2, or 3+ HIEs on record, and where they found them.
-function GoalProgress({ c }: { c: Coverage }) {
+// Every Poole undergraduate as one dot, colored by how many high-impact experiences they have
+// on record. Hover a key (or tap it) to pick out one group. Plain SVG, so it prints as is.
+function StudentDots({ c }: { c: Coverage }) {
   const [focus, setFocus] = useState<number | null>(null);
   if (!c.enrollment) return null;
-  const share = (n: number) => Math.round((n / c.enrollment) * 1000) / 10;
+  const per = c.enrollment > 4000 ? Math.ceil(c.enrollment / 3000) : 1;
   const none = Math.max(0, c.enrollment - c.students);
-  const parts = [...c.byCount.slice().reverse(), { label: "Not yet on record", n: none }];
+  const groups = [
+    { label: "3 or more HIEs", n: c.byCount[2]?.n ?? 0 },
+    { label: "2 HIEs", n: c.byCount[1]?.n ?? 0 },
+    { label: "1 HIE", n: c.byCount[0]?.n ?? 0 },
+    { label: "Not yet on record", n: none },
+  ];
+  const cols = 100;
+  const total = groups.reduce((a, g) => a + Math.round(g.n / per), 0);
+  const rows = Math.ceil(total / cols);
+  let i = 0;
+  const share = (n: number) => Math.round((n / c.enrollment) * 1000) / 10;
   const maxArea = Math.max(...c.byArea.map((a) => a.n), 1);
   return (
-    <Reveal className="panel goal">
-      <div className="goal-main">
+    <Reveal className="panel dots-panel">
+      <div className="dots-main">
         <p className="label">Progress toward the goal</p>
-        <h2>{fmtN(c.students)} of {fmtN(c.enrollment)} Poole undergraduates have a high-impact experience on record</h2>
-        <div className="goal-bar" role="img" aria-label={`${share(c.students)}% of undergraduates have at least one HIE`}>
-          {parts.map((p, i) => (
-            <span
-              key={p.label}
-              className={`goal-seg s${i}${focus !== null && focus !== i ? " dim" : ""}`}
-              style={{ width: `${(p.n / c.enrollment) * 100}%` }}
-              title={`${p.label}: ${fmtN(p.n)} students (${share(p.n)}%)`}
-              onMouseEnter={() => setFocus(i)}
-              onMouseLeave={() => setFocus(null)}
-            />
+        <h2>{c.students > 0 && <span className="dots-big">About 1 in {Math.max(1, Math.round(c.enrollment / c.students))}</span>} Poole undergraduates {c.students >= c.enrollment ? "have" : "has"} a high-impact experience on record.</h2>
+        <svg className={`dots-art${focus !== null ? " focusing" : ""}`} viewBox={`0 0 ${cols * 10} ${rows * 10}`} role="img"
+          aria-label={groups.map((g) => `${g.label}: ${fmtN(g.n)}`).join(", ")}>
+          {groups.map((g, gi) => (
+            <g key={g.label} className={`dot-g s${gi}${focus === gi ? " on" : ""}`}>
+              {Array.from({ length: Math.round(g.n / per) }, () => {
+                const k = i++;
+                return <circle key={k} cx={(k % cols) * 10 + 5} cy={Math.floor(k / cols) * 10 + 5} r={3.6} style={{ animationDelay: `${Math.floor(k / cols) * 30}ms` }} />;
+              })}
+            </g>
           ))}
-        </div>
-        <ul className="goal-legend">
-          {parts.map((p, i) => (
-            <li key={p.label}>
-              <button className={focus === i ? "on" : ""} onMouseEnter={() => setFocus(i)} onMouseLeave={() => setFocus(null)} onFocus={() => setFocus(i)} onBlur={() => setFocus(null)}>
-                <span className={`goal-key s${i}`} aria-hidden="true" />
-                <b>{fmtN(p.n)}</b> {p.label === "Not yet on record" ? p.label.toLowerCase() : `with ${p.label}`} <span className="src">({share(p.n)}%)</span>
+        </svg>
+        <ul className="dots-legend">
+          {groups.map((g, gi) => (
+            <li key={g.label}>
+              <button className={focus === gi ? "on" : ""} aria-pressed={focus === gi}
+                onMouseEnter={() => setFocus(gi)} onMouseLeave={() => setFocus(null)} onFocus={() => setFocus(gi)} onBlur={() => setFocus(null)}
+                onClick={() => setFocus(focus === gi ? null : gi)}>
+                <span className={`dot-key s${gi}`} aria-hidden="true" />
+                <b>{fmtN(g.n)}</b> {g.label === "Not yet on record" ? "not yet on record" : `with ${g.label}`} <span className="src">({share(g.n)}%)</span>
               </button>
             </li>
           ))}
         </ul>
+        <p className="src">Each dot is {per === 1 ? "one student" : `${per} students`}, out of {fmtN(c.enrollment)} Poole undergraduates.</p>
       </div>
       <div className="goal-side">
         <p className="label">Where students found their HIE</p>
