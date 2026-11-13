@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react";
 import * as echarts from "echarts/core";
-import { BarChart as EBar, LineChart as ELine } from "echarts/charts";
-import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from "echarts/components";
+import { BarChart as EBar, CustomChart, FunnelChart, GaugeChart, LineChart as ELine, PieChart, ScatterChart, TreemapChart } from "echarts/charts";
+import { GraphicComponent, GridComponent, LegendComponent, TitleComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer, SVGRenderer } from "echarts/renderers";
 import type { Chart as ChartData } from "../data/types";
 import { chartCsv, saveCsv, saveDataUrl, slug } from "../lib/download";
 import { DownloadMenu } from "./ui";
 
-echarts.use([EBar, ELine, GridComponent, LegendComponent, TitleComponent, TooltipComponent, SVGRenderer, CanvasRenderer]);
+echarts.use([EBar, ELine, PieChart, FunnelChart, TreemapChart, GaugeChart, ScatterChart, CustomChart, GraphicComponent, GridComponent, LegendComponent, TitleComponent, TooltipComponent, SVGRenderer, CanvasRenderer]);
 
 type Colors = { ink: string; muted: string; line: string; surface: string; s1: string; s2: string; s1soft: string; font: string };
 
@@ -23,7 +23,138 @@ const exportColors: Colors = {
   s1: "#cc0000", s2: "#4156a1", s1soft: "#f1b9b9", font: "Roboto, Arial, sans-serif",
 };
 
+// Categorical colors for donuts and treemaps: NC State's brand palette, in a fixed order.
+const PALETTE = ["#cc0000", "#4156a1", "#008473", "#d14905", "#6f7d1c", "#427e93", "#990000", "#7a7a7a"];
+
 function chartOption(chart: ChartData, c: Colors, forExport: boolean, highlight?: number, clickable = false) {
+  const special = specialOption(chart, c, forExport);
+  if (special) return special;
+  return barLineOption(chart, c, forExport, highlight, clickable);
+}
+
+// The infographic kinds. Each keeps the same data shape (categories + series) as a bar chart.
+function specialOption(chart: ChartData, c: Colors, forExport: boolean) {
+  const kind = chart.kind ?? "bar";
+  if (kind === "bar" || kind === "line") return null;
+  const s = chart.series[0];
+  const text = { color: c.ink, fontFamily: c.font };
+  const base = {
+    animation: !forExport,
+    animationDuration: 800,
+    backgroundColor: forExport ? c.surface : "transparent",
+    title: forExport ? { text: chart.title, left: 8, top: 8, textStyle: { ...text, fontSize: 18, fontWeight: "bold" as const } } : undefined,
+    tooltip: { trigger: "item" as const, backgroundColor: c.surface, borderColor: c.line, textStyle: { ...text, fontSize: 13 }, extraCssText: "border-radius:0;box-shadow:0 6px 18px rgba(0,0,0,.12);" },
+  };
+  const top = forExport ? 50 : 6;
+  const data = chart.categories.map((name, i) => ({ name, value: s?.values[i] ?? 0, label: s?.labels?.[i] }));
+  const total = data.reduce((a, d) => a + d.value, 0) || 1;
+
+  if (kind === "donut") {
+    return {
+      ...base,
+      color: PALETTE,
+      legend: { bottom: 0, left: "center", icon: "circle", itemWidth: 10, itemHeight: 10, textStyle: { ...text, fontSize: 12, color: c.muted } },
+      series: [{
+        type: "pie" as const, radius: ["48%", "72%"], center: ["50%", forExport ? "52%" : "44%"], avoidLabelOverlap: true,
+        itemStyle: { borderColor: c.surface, borderWidth: 2 },
+        label: { ...text, fontSize: 12, formatter: (p: { name: string; value: number }) => `${Math.round((p.value / total) * 100)}%` },
+        labelLine: { length: 8, length2: 6 },
+        data,
+      }],
+      graphic: forExport ? undefined : [{ type: "text" as const, left: "center", top: "39%", style: { text: total.toLocaleString("en-US"), fill: c.ink, font: `bold 22px ${c.font}` } }],
+    };
+  }
+  if (kind === "funnel") {
+    const first = data[0]?.value || 1;
+    return {
+      ...base,
+      series: [{
+        type: "funnel" as const, top, bottom: 6, left: "2%", width: "56%", minSize: "18%", sort: "none" as const, gap: 3,
+        itemStyle: { color: c.s1, borderWidth: 0 },
+        data: data.map((d, i) => ({ ...d, itemStyle: { color: c.s1, opacity: 1 - i * (0.6 / Math.max(1, data.length - 1)) } })),
+        label: { position: "right" as const, ...text, fontSize: 13, formatter: (p: { name: string; value: number }) => `{b|${p.value.toLocaleString("en-US")}} ${p.name} · ${Math.round((p.value / first) * 100)}%`, rich: { b: { fontWeight: "bold" as const, fontSize: 15, color: c.ink } } },
+      }],
+    };
+  }
+  if (kind === "treemap") {
+    return {
+      ...base,
+      series: [{
+        type: "treemap" as const, top, left: 0, right: 0, bottom: 0, roam: false, nodeClick: false as const, breadcrumb: { show: false },
+        itemStyle: { borderColor: c.surface, borderWidth: 2, gapWidth: 2 },
+        label: { color: "#ffffff", fontFamily: c.font, fontSize: 12, overflow: "break" as const, formatter: (p: { name: string; value: number }) => `{n|${p.value}}\n${p.name}`, rich: { n: { fontSize: 18, fontWeight: "bold" as const, color: "#ffffff", lineHeight: 22 } } },
+        data: data.filter((d) => d.value > 0).map((d, i) => ({ ...d, itemStyle: { color: PALETTE[i % PALETTE.length] } })),
+      }],
+    };
+  }
+  if (kind === "rings") {
+    const max = chart.max ?? 100;
+    const n = data.length;
+    const perRow = Math.min(n, 4);
+    const rows = Math.ceil(n / perRow);
+    return {
+      ...base,
+      series: data.map((d, i) => {
+        const col = i % perRow, row = Math.floor(i / perRow);
+        return {
+          type: "gauge" as const, startAngle: 90, endAngle: -270, min: 0, max,
+          center: [`${((col + 0.5) / perRow) * 100}%`, `${((row + 0.42) / rows) * 100 * (forExport ? 0.85 : 1) + (forExport ? 12 : 0)}%`],
+          radius: `${Math.min(34, 90 / Math.max(perRow, rows * 1.6))}%`,
+          pointer: { show: false }, axisLine: { lineStyle: { width: 10, color: [[1, c.line]] } },
+          progress: { show: true, width: 10, roundCap: true, itemStyle: { color: PALETTE[i % PALETTE.length] } },
+          splitLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false },
+          title: { show: true, offsetCenter: [0, "150%"], ...text, fontSize: 12, width: 150, overflow: "break" as const, lineHeight: 15 },
+          detail: { valueAnimation: true, offsetCenter: [0, 0], ...text, fontSize: 18, fontWeight: "bold" as const, formatter: () => d.label ?? (max === 100 ? `${d.value}%` : `${d.value}`) },
+          data: [{ value: d.value, name: d.name }],
+        };
+      }),
+    };
+  }
+  if (kind === "meter") {
+    const max = chart.max ?? 100;
+    return {
+      ...base,
+      grid: { left: 8, right: 56, top, bottom: 4, containLabel: true },
+      xAxis: { type: "value" as const, max, show: false },
+      yAxis: { type: "category" as const, data: chart.categories, inverse: true, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { ...text, fontSize: 12, width: 230, overflow: "truncate" as const } },
+      series: [{
+        type: "bar" as const, data: data.map((d) => d.value), barWidth: 12, showBackground: true, backgroundStyle: { color: c.line, borderRadius: 6 },
+        itemStyle: { color: c.s1, borderRadius: 6 },
+        label: { show: true, position: "right" as const, ...text, fontWeight: "bold" as const, fontSize: 13, formatter: (p: { dataIndex: number; value: number }) => data[p.dataIndex].label ?? `${p.value}%` },
+      }],
+    };
+  }
+  if (kind === "dumbbell") {
+    const [a, b] = chart.series;
+    const cats = chart.categories;
+    return {
+      ...base,
+      legend: { top: forExport ? 48 : 0, left: 8, icon: "circle", itemWidth: 10, itemHeight: 10, textStyle: { ...text, fontSize: 12, color: c.muted } },
+      grid: { left: 8, right: 30, top: top + 26, bottom: 4, containLabel: true },
+      xAxis: { type: "value" as const, min: chart.max ? 0 : undefined, max: chart.max, splitLine: { lineStyle: { color: c.line, type: "dashed" as const } }, axisLabel: { ...text, fontSize: 11, color: c.muted } },
+      yAxis: { type: "category" as const, data: cats, inverse: true, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { ...text, fontSize: 12, width: 180, overflow: "truncate" as const } },
+      tooltip: { ...base.tooltip, trigger: "axis" as const },
+      series: [
+        {
+          type: "custom" as const, silent: true, tooltip: { show: false },
+          renderItem: (_: unknown, api: { value: (i: number) => number; coord: (v: [number, number]) => number[] }) => {
+            const y = api.value(0);
+            const p1 = api.coord([api.value(1), y]), p2 = api.coord([api.value(2), y]);
+            return { type: "line", shape: { x1: p1[0], y1: p1[1], x2: p2[0], y2: p2[1] }, style: { stroke: c.muted, lineWidth: 3, opacity: 0.45 } };
+          },
+          encode: { x: [1, 2], y: 0 },
+          data: cats.map((_, i) => [i, a.values[i], b.values[i]]),
+        },
+        { type: "scatter" as const, name: a.name, symbolSize: 13, itemStyle: { color: c.s2 }, data: a.values.map((v, i) => [v, i]), encode: { x: 0, y: 1 } },
+        { type: "scatter" as const, name: b.name, symbolSize: 15, itemStyle: { color: c.s1 }, data: b.values.map((v, i) => [v, i]), encode: { x: 0, y: 1 },
+          label: { show: true, position: "right" as const, ...text, fontWeight: "bold" as const, fontSize: 12, formatter: (p: { dataIndex: number }) => (b.labels ? b.labels[p.dataIndex] : String(b.values[p.dataIndex])) } },
+      ],
+    };
+  }
+  return null;
+}
+
+function barLineOption(chart: ChartData, c: Colors, forExport: boolean, highlight?: number, clickable = false) {
   const horizontal = chart.orientation === "horizontal";
   const single = chart.series.length === 1;
   const radius = horizontal ? [0, 2, 2, 0] : [2, 2, 0, 0];

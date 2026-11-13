@@ -5,7 +5,6 @@ import { Chip, LabeledSection, Reveal, SplitHeader, accentStyle, formatDate } fr
 import { parseCsv, validateAgainstTemplate } from "../lib/csv";
 import { saveCsv, slug } from "../lib/download";
 import { Icon, iconFor, type IconName } from "../components/Icon";
-import { PhotoGallery } from "../components/PhotoGallery";
 
 type Status = { ok: boolean; text: string } | null;
 
@@ -104,6 +103,7 @@ export function ContributePage({ data }: { data: ReportData }) {
   return (
     <div className="view">
       <SplitHeader
+        compact
         eyebrow="For program teams"
         title="Data and templates"
         lead="The dashboard does the analysis. Each program only needs to keep a simple list of what happened, in the columns below. Templates marked “to confirm” are starting points to talk through with that team."
@@ -297,7 +297,6 @@ export function ContributePage({ data }: { data: ReportData }) {
       </div>
       )}
 
-      <PhotoGallery sections={data.sections} />
     </div>
   );
 }

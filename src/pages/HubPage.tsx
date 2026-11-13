@@ -126,6 +126,7 @@ export function HubPage({ data }: { data: ReportData }) {
   return (
     <div className="view">
       <SplitHeader
+        compact
         eyebrow="The Hub"
         title="Poole Undergraduate Student Hub"
         lead="Check-ins on the Hub kiosk iPad. Each tap counts as one visit, so read this as traffic, not unique students."

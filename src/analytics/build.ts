@@ -70,6 +70,8 @@ const hbar = (title: string, pairs: [string, number][], labels?: string[]): Char
   categories: pairs.map((p) => p[0]),
   series: [{ name: "Count", values: pairs.map((p) => p[1]), labels, emphasis: true }],
 });
+// Same data, a different picture: donut, funnel, treemap, rings, meter, dumbbell or line.
+const as = (kind: Chart["kind"], c: Chart, extra: Partial<Chart> = {}): Chart => ({ ...c, kind, orientation: kind === "meter" || kind === "dumbbell" ? "horizontal" : undefined, ...extra });
 const twoSeries = (title: string, categories: string[], a: [string, number[]], b: [string, number[]], bLabels?: string[]): Chart => ({
   title,
   categories,
@@ -139,9 +141,9 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         metric("g-countries", "global", String(countries.length), "countries students went to"),
       ],
       charts: [
-        bar("Students abroad by term", terms, perTerm),
-        hbar("Program type", countBy(rows, "Program type")),
-        hbar("Top destinations", countries.slice(0, 8)),
+        as("line", bar("Students abroad by term", terms, perTerm)),
+        as("donut", hbar("Program type", countBy(rows, "Program type"))),
+        as("treemap", hbar("Top destinations", countries.slice(0, 12))),
         bar("Students by number of global programs", ["1 program", "2 programs", "3 or more"], depth),
       ],
     };
@@ -165,11 +167,15 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       };
     });
     const latest = stats[stats.length - 1];
-    const prev = stats[stats.length - 2];
     const done = [...stats].reverse().find((s) => s.placed > 0) ?? latest;
+    // "This year" is the latest cohort whose summer has started; later ones are still recruiting.
+    const yearOf = (c: string) => Number((/(\d{4})/.exec(c) ?? [0, "0"])[1]);
+    const started = (c: string) => yearOf(c) < today.getFullYear() || (yearOf(c) === today.getFullYear() && today.getMonth() >= 4);
+    const focus = [...stats].reverse().find((s) => started(s.c)) ?? latest;
+    const before = stats[stats.indexOf(focus) - 1];
+    const upcoming = stats.filter((s) => !started(s.c));
     // Program sheets may only have applications so far; outcome charts appear once statuses do.
     const hasOutcomes = A.some((r) => /interview|placed/i.test(val(r, "Status")));
-    const ch = prev ? change(latest.applicants, prev.applicants) : null;
 
     // Applications per week for the latest cohort.
     const dates = latest.rows.map((r) => parseDate(val(r, "Applied on"))).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime());
@@ -196,12 +202,14 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     const allHosts = E.filter(isHost);
     const placedAll = A.filter((r) => /placed/i.test(val(r, "Status")));
 
-    const applicantsM = metric("i-applicants", "sbip_applicants", fmt(latest.applicants), `students applied for ${latest.c}`, ch !== null && prev ? { change: `${signed(ch)} vs ${prev.c}` } : {});
+    const fc = before ? change(focus.applicants, before.applicants) : null;
+    const applicantsM = metric("i-applicants", "sbip_applicants", fmt(focus.applicants), `students applied for ${focus.c}`, fc !== null && before ? { change: `${signed(fc)} vs ${before.c}` } : {});
     const metrics = [
       applicantsM,
       hasOutcomes
-        ? metric("i-interviewed", "sbip_applicants", fmt(latest.interviewed), `invited to interview for ${latest.c}`)
+        ? metric("i-interviewed", "sbip_applicants", fmt(focus.interviewed), `invited to interview for ${focus.c}`)
         : metric("i-total", "sbip_applicants", fmt(A.length), `applications across ${stats.length} ${stats.length === 1 ? "cohort" : "cohorts"}`),
+      ...upcoming.map((u) => metric(`i-next-${yearOf(u.c)}`, "sbip_applicants", fmt(u.applicants), `applications so far for ${u.c} (still open)`)),
     ];
     if (E.length && !hasHosts) {
       const latestEmp = [...cohortsOf(E)].pop() ?? latest.c;
@@ -225,25 +233,25 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         ...twoSeries("Applicants and placements by cohort", stats.map((s) => s.c), ["Applicants", stats.map((s) => s.applicants)], ["Placed", stats.map((s) => s.placed)], stats.map((s) => (s.placed ? String(s.placed) : "—"))),
         note: stats.some((s) => !s.placed) ? `Placements for ${stats.filter((s) => !s.placed).map((s) => s.c).join(", ")} are still in progress.` : undefined,
       },
-      hbar(`Applicant funnel, ${done.c}`, [["Applied", done.applicants], ["Interviewed", done.interviewed], ["Placed", done.placed]], [done.applicants, done.interviewed, done.placed].map((n) => `${n} (${pct(n, done.applicants)}%)`)),
-    ] : [bar("Applicants by cohort", stats.map((s) => s.c), stats.map((s) => s.applicants))];
-    if (weekVals.length) charts.push(bar(`Applications per week, ${latest.c}`, weekCats, weekVals));
-    const majors = countBy(latest.rows, "Major");
-    if (majors.length) charts.push(hbar(`Applicants by major, ${latest.c}`, majors.slice(0, 10), majors.slice(0, 10).map(([, n]) => `${n} (${pct(n, latest.applicants)}%)`)));
-    const ruralTies = countBy(latest.rows, "Rural connection");
-    if (ruralTies.length) charts.push(hbar(`Applicants' connection to a rural community, ${latest.c}`, ruralTies.slice(0, 8)));
+      as("funnel", hbar(`Applicant funnel, ${done.c}`, [["Applied", done.applicants], ["Interviewed", done.interviewed], ["Placed", done.placed]])),
+    ] : [{ ...bar("Applicants by cohort", stats.map((s) => s.c), stats.map((s) => s.applicants)), note: upcoming.length ? `${upcoming.map((u) => u.c).join(", ")} is still taking applications.` : undefined }];
+    if (weekVals.length) charts.push(as("line", bar(`Applications per week, ${latest.c}`, weekCats, weekVals)));
+    const majors = countBy(focus.rows, "Major");
+    if (majors.length) charts.push(as("treemap", hbar(`Applicants by major, ${focus.c}`, majors.slice(0, 12))));
+    const ruralTies = countBy(focus.rows, "Rural connection");
+    if (ruralTies.length) charts.push(as("donut", hbar(`Applicants' connection to a rural community, ${focus.c}`, ruralTies.slice(0, 6))));
     if (E.length && !hasHosts) {
       const status = countBy(E, "Status");
-      if (status.length) charts.push(hbar("Employer outreach by status", status.slice(0, 10)));
+      if (status.length) charts.push(as("donut", hbar("Employer outreach by status", status.slice(0, 7))));
       const typed = byCountyType(E);
-      if (typed.length) charts.push({ ...hbar("Businesses contacted by county type", typed), note: "Only businesses whose location matches an NC county or town. County types follow the NC Rural Center's 2020 Census definitions." });
+      if (typed.length) charts.push({ ...as("donut", hbar("Businesses contacted by county type", typed)), note: "Only businesses whose location matches an NC county or town. County types follow the NC Rural Center's 2020 Census definitions." });
       const sec = countMapped(E, "Industry sector", gicsSector);
-      if (sec.length) charts.push(hbar("Businesses contacted by industry sector", sec.slice(0, 12)));
+      if (sec.length) charts.push(as("treemap", hbar("Businesses contacted by industry sector", sec.slice(0, 12))));
     }
     if (empLatest.length && hasHosts) {
       const interested = empLatest.filter((r) => /interest|host/i.test(val(r, "Status"))).length;
       const hosting = empLatest.filter((r) => /host/i.test(val(r, "Status"))).length;
-      charts.push(hbar(`Employer outreach, ${latest.c}`, [["Contacted", empLatest.length], ["Interested", interested], ["Hosting", hosting]], [empLatest.length, interested, hosting].map((n) => `${n} (${pct(n, empLatest.length)}%)`)));
+      charts.push(as("funnel", hbar(`Employer outreach, ${latest.c}`, [["Contacted", empLatest.length], ["Interested", interested], ["Hosting", hosting]])));
     }
     if (empDone.length && hasHosts) {
       const contactedT = new Map(byCountyType(empDone));
@@ -255,10 +263,10 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       });
     }
     const sectors = countMapped(allHosts, "Industry sector", gicsSector);
-    if (sectors.length) charts.push(hbar("Host businesses by industry sector, all cohorts", sectors));
+    if (sectors.length) charts.push(as("treemap", hbar("Host businesses by industry sector, all cohorts", sectors)));
     const roles = countBy(placedAll, "Functional area");
-    if (roles.length) charts.push(hbar("Placed interns by functional area, all cohorts", roles));
-    return { ...base, summary: `applied for ${latest.c} internships with small and rural businesses`, cardMetric: applicantsM, metrics, charts };
+    if (roles.length) charts.push(as("donut", hbar("Placed interns by functional area, all cohorts", roles.slice(0, 7))));
+    return { ...base, summary: `applied for ${focus.c} internships with small and rural businesses${upcoming.length ? `; ${upcoming.map((u) => `${fmt(u.applicants)} so far for ${u.c}`).join(", ")}` : ""}`, cardMetric: applicantsM, metrics, charts };
     function cohortsOf(rows: Row[]) { return sortTerms(rows.map((r) => val(r, "Cohort")).filter((c) => /\d{4}/.test(c))); }
   }
 
@@ -314,7 +322,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         }
         const gain = avg(after.map((v, i) => v - before[i]));
         metrics.push(metric(`${id}-gain`, "sbip_surveys", `${gain >= 0 ? "+" : ""}${gain.toFixed(1)}`, `average gain in self-rated skills, on a ${top}-point scale`));
-        charts.push({ ...twoSeries(`Self-rated skills: at the start vs now (average, out of ${top})`, cats, ["At the start", before], ["Now", after], after.map((v) => v.toFixed(1))), orientation: "horizontal" });
+        charts.push(as("dumbbell", twoSeries(`Self-rated skills: at the start vs now (average, out of ${top})`, cats, ["At the start", before], ["Now", after], after.map((v) => v.toFixed(1))), { max: top }));
       }
       for (const [base, ls] of groups) {
         if (ls.length < 2 || ls.every((x) => used.has(x.q))) continue;
@@ -333,13 +341,13 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         const all = agree.flatMap(([, xs]) => xs);
         metrics.push(metric(`${id}-agree`, "sbip_surveys", `${share(all, /^strongly agree/i)}%`, `of ${audience.toLowerCase()}' ratings were "Strongly agree"`));
         const p = agree.map(([q, xs]) => [short(q), share(xs, /^strongly agree/i)] as [string, number]).sort((a, b) => b[1] - a[1]);
-        charts.push(hbar(`Rated "Strongly agree" (% of ${audience.toLowerCase()})`, p, p.map(([, n]) => `${n}%`)));
+        charts.push(as("meter", hbar(`Rated "Strongly agree" (% of ${audience.toLowerCase()})`, p, p.map(([, n]) => `${n}%`))));
         agree.forEach(([q]) => used.add(q));
       }
       const yesNo = single.filter(([q, xs]) => !used.has(q) && share(xs, /^(yes|no|unsure|maybe|not sure)\b/i) >= 80);
       if (yesNo.length) {
         const p = yesNo.map(([q, xs]) => [short(q), share(xs, /^yes/i)] as [string, number]);
-        charts.push(hbar(`Answered "Yes" (% of ${audience.toLowerCase()})`, p, yesNo.map(([, xs]) => `${xs.filter((a) => /^yes/i.test(a)).length} of ${xs.length}`)));
+        charts.push(as("rings", hbar(`Answered "Yes" (% of ${audience.toLowerCase()})`, p)));
         const key = yesNo.find(([q]) => /full-?time/i.test(q)) ?? yesNo.find(([q]) => /another|again|future/i.test(q));
         if (key) metrics.push(metric(`${id}-yes`, "sbip_surveys", `${share(key[1], /^yes/i)}%`, /full-?time/i.test(key[0]) ? `would hire their intern full-time if a role opened` : `said yes: ${short(key[0], 80).toLowerCase()}`));
         yesNo.forEach(([q]) => used.add(q));
@@ -359,10 +367,13 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         }
         used.add(q);
       }
-      if (ratings.length) charts.push(hbar("Average ratings", ratings, ratingLabels));
+      if (ratings.length) {
+        const scale = ratingLabels.some((l) => / of 10$/.test(l)) ? 10 : 5;
+        charts.push(as("rings", hbar(`Average ratings (out of ${scale})`, ratings, ratings.map(([, n]) => n.toFixed(1))), { max: scale }));
+      }
       for (const [q, xs] of single.filter(([q]) => !used.has(q)).slice(0, 3)) {
         const c = countBy(xs.map((a) => ({ a })), "a");
-        if (c.length > 1) charts.push(hbar(short(q), c, c.map(([, n]) => `${n} (${pct(n, xs.length)}%)`)));
+        if (c.length > 1) charts.push(as("donut", hbar(short(q), c.slice(0, 7))));
       }
       return { id, title: name, cohort, audience, responses, metrics: metrics.slice(0, 4), charts };
     });
@@ -391,7 +402,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       ? twoSeries("Sales Excellence Certificate by cycle", cycles, ["Applicants", c.map((x) => x.apps)], ["Accepted", c.map((x) => x.accepted)])
       : bar("Sales Excellence Certificate applicants by cycle", cycles, c.map((x) => x.apps))];
     const majors = countBy(cl.rows, "Major");
-    if (majors.length) charts.push(hbar(`Sales Excellence Certificate applicants by major, ${cl.cy}`, majors.slice(0, 10)));
+    if (majors.length) charts.push(as("donut", hbar(`Sales Excellence Certificate applicants by major, ${cl.cy}`, majors.slice(0, 7))));
     return { metrics, charts, summary: `students applied to the Sales Excellence Certificate in ${cl.cy}` };
   }
 
@@ -434,9 +445,9 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       metric("p-run", "practicum", `${latest.run} of ${latest.offered}`, `courses ran, ${latest.term}`),
     ];
     const charts: Chart[] = [
-      twoSeries("Applications and enrollment by term", terms, ["Applications", t.map((x) => x.apps)], ["Enrolled", t.map((x) => x.admitted)]),
-      bar("Drop rate by term", terms, t.map(dropRate), {}, t.map((x) => `${dropRate(x)}%`)),
-      hbar(`Applications by course, ${latest.term}`, latest.byCourse),
+      as("line", twoSeries("Applications and enrollment by term", terms, ["Applications", t.map((x) => x.apps)], ["Enrolled", t.map((x) => x.admitted)])),
+      as("line", bar("Drop rate by term (%)", terms, t.map(dropRate), {}, t.map((x) => `${dropRate(x)}%`))),
+      as("treemap", hbar(`Applications by course, ${latest.term}`, latest.byCourse)),
     ];
     if (openRows.length) {
       charts.push(twoSeries("Students enrolled by course type", terms, ["Application courses", t.map((x) => x.admitted - x.dropped)], ["Open enrollment", terms.map(openEnrolled)]));
@@ -476,8 +487,8 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       ],
       charts: [
         bar("Students on executive boards by year", years, years.map((y) => studentsIn(y).length)),
-        hbar(`Board roles by organization, ${latest}`, orgs.slice(0, 12)),
-        hbar(`Board roles by type, ${latest}`, countBy(latestRows, "Role")),
+        as("treemap", hbar(`Board roles by organization, ${latest}`, orgs.slice(0, 15))),
+        as("donut", hbar(`Board roles by type, ${latest}`, countBy(latestRows, "Role"))),
       ],
     };
   }
@@ -506,7 +517,6 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       const perStudent = new Map<string, number>();
       for (const r of cur) perStudent.set(val(r, "Student key"), (perStudent.get(val(r, "Student key")) ?? 0) + 1);
       const v = [...perStudent.values()];
-      const depth: [string, number][] = [["1 activity", v.filter((n) => n === 1).length], ["2 to 3", v.filter((n) => n >= 2 && n <= 3).length], ["4 to 5", v.filter((n) => n >= 4 && n <= 5).length], ["6 or more", v.filter((n) => n >= 6).length]];
 
       // Monthly totals across everything on record.
       const months = new Map<string, number>();
@@ -526,9 +536,9 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         metric("k-top", "packways", `${pct(comp[0]?.[1] ?? 0, cur.length)}%`, `of this year's completions are ${comp[0]?.[0] ?? "—"}`),
       );
       charts.push(
-        bar("Activity completions by month", monthKeys.map((k) => `${MONTHS[Number(k.slice(5)) - 1]} ’${k.slice(2, 4)}`), monthKeys.map((k) => months.get(k)!)),
-        hbar(`Competency mix, ${ayLabel}`, comp, comp.map(([, n]) => `${pct(n, cur.length)}%`)),
-        bar(`Students by activities completed, ${ayLabel}`, depth.map((d) => d[0]), depth.map((d) => d[1])),
+        as("line", bar("Activity completions by month", monthKeys.map((k) => `${MONTHS[Number(k.slice(5)) - 1]} ’${k.slice(2, 4)}`), monthKeys.map((k) => months.get(k)!))),
+        as("donut", hbar(`Competency mix, ${ayLabel}`, comp)),
+        as("funnel", hbar(`How far students go, ${ayLabel}`, [["1 or more activities", v.length], ["2 or more", v.filter((n) => n >= 2).length], ["4 or more", v.filter((n) => n >= 4).length], ["6 or more", v.filter((n) => n >= 6).length]])),
       );
     }
     if (D.length) {
@@ -540,7 +550,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         metric("d-jobs", "deans_scholars", `${jobs} of ${D.length}`, "Dean's Scholars with an internship or campus job"),
         metric("d-list", "deans_scholars", `${list} of ${D.length}`, "Dean's Scholars on the Dean's List"),
       );
-      charts.push(hbar("Dean's Scholars completions by competency", totals.sort((a, b) => b[1] - a[1])));
+      charts.push(as("donut", hbar("Dean's Scholars completions by competency", totals.sort((a, b) => b[1] - a[1]))));
       if (!card) { card = metric("d-total", "deans_scholars", fmt(totals.reduce((a, b) => a + b[1], 0)), "Dean's Scholars activity completions"); summary = "activity completions by Dean's Scholars"; }
     }
     return { ...base, summary, cardMetric: card, metrics, charts };
@@ -570,9 +580,9 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       ],
       charts: [
         twoSeries("Internships and co-ops by term", terms, ["Co-ops", terms.map((t) => of(t, /co-?op/i))], ["Internships", terms.map((t) => of(t, /intern/i))]),
-        hbar("Industry sector", countMapped(C, "Industry sector", gicsSector)),
-        ...(countBy(C, "Functional area").length ? [hbar("Functional area", countBy(C, "Functional area"))] : []),
-        ...(byCountyType(C).length ? [{ ...hbar("Where in North Carolina, by county type", byCountyType(C).filter(([t]) => t !== "Outside NC")), note: "Only internships and co-ops with an NC county. County types follow the NC Rural Center's 2020 Census definitions." }] : []),
+        as("treemap", hbar("Industry sector", countMapped(C, "Industry sector", gicsSector))),
+        ...(countBy(C, "Functional area").length ? [as("donut", hbar("Functional area", countBy(C, "Functional area").slice(0, 7)))] : []),
+        ...(byCountyType(C).length ? [{ ...as("donut", hbar("Where in North Carolina, by county type", byCountyType(C).filter(([t]) => t !== "Outside NC"))), note: "Only internships and co-ops with an NC county. County types follow the NC Rural Center's 2020 Census definitions." }] : []),
       ],
     };
   }

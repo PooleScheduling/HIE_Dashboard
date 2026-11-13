@@ -29,6 +29,7 @@ export function TeamPage({ data, go }: { data: ReportData; go: Go }) {
   return (
     <div className="view">
       <SplitHeader
+        compact
         eyebrow="Who runs what"
         title="Meet the team"
         lead="The teams behind Poole's high-impact experiences, and the program areas each one covers. Many people work across more than one area."

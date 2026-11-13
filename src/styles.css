@@ -725,3 +725,41 @@ h2 { font-size: clamp(22px, 2vw, 28px); }
 .report .split-cta .btn-outline { padding: 7px 12px; font-size: 14px; justify-content: space-between; }
 .report .split-eyebrow { font-size: 13px; }
 @media (max-width: 760px) { .report .split.compact .split-body { grid-template-columns: 1fr; } .report .split-body > .split-cta { grid-column: 1; grid-row: auto; flex-direction: row; } }
+
+/* ---------- Compact pages (Programs, Hub, Stories, Contribute; the HIE Wall keeps its own look) ---------- */
+.split.compact .split-body { padding: 18px 24px; gap: 6px; }
+.split.compact .split-body h1 { font-size: clamp(22px, 2.4vw, 30px); }
+.split.compact .split-lead { font-size: 15px; }
+.split.compact .split-eyebrow { font-size: 13px; }
+.dash { gap: 18px; }
+.prog-layout { grid-template-columns: 220px minmax(0, 1fr); gap: 20px; }
+.side-item { padding: 9px 10px 9px 14px; gap: 10px; }
+.side-text b { font-size: 14px; }
+.facts.boxed { gap: 10px; }
+.facts.boxed .fact { padding: 14px 16px; border-top-width: 3px; gap: 2px; }
+.facts.boxed .fact-ic { display: none; }
+.facts.boxed .fact-n { font-size: clamp(26px, 2.4vw, 34px); }
+.facts.boxed .fact-l { font-size: 13px; line-height: 1.35; }
+.facts.boxed .d { font-size: 12px; }
+.facts.boxed.dyn { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.grid { gap: 14px; }
+.panel { padding: 14px 16px; gap: 8px; }
+.chart-title { font-size: 15px; }
+.chart .note { font-size: 12px; }
+.surveys { margin-top: 12px; gap: 10px; }
+.surveys-head h2 { font-size: 20px; }
+.survey-tab { padding: 7px 12px; }
+.survey-tab b { font-size: 14px; }
+.survey-tab small { font-size: 12px; }
+.sources { padding-top: 10px; font-size: 13px; }
+.stories { columns: 3 280px; column-gap: 14px; }
+.story { margin-bottom: 14px; padding: 16px 18px; border-left-width: 4px; }
+.story blockquote { font-size: 15px; line-height: 1.5; }
+.story footer { margin-top: 10px; font-size: 13px; gap: 6px; }
+.filterbar { gap: 8px 20px; }
+.ways { gap: 10px; }
+.way { padding: 14px 16px; gap: 6px; }
+.way p { font-size: 14px; }
+.highlights { gap: 12px; }
+.highlight { padding: 14px 16px; }
+@media (max-width: 860px) { .prog-layout { grid-template-columns: 1fr; } }

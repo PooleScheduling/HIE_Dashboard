@@ -16,6 +16,7 @@ export function StoriesPage({ data }: { data: ReportData }) {
   return (
     <div className="view">
       <SplitHeader
+        compact
         eyebrow="In their words"
         title="Stories"
         lead="Quotes from students, employers and faculty, sorted by program and ready for an impact report."

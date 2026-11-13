@@ -135,6 +135,9 @@ export function Fact({ m, accent = "hub", delay = 0, icon }: { m: Metric; accent
 // NC State "split header": an uploaded photo next to a solid brand-color block.
 // With no photo for this page, the color block runs full width.
 // People who can manage photos see a button to add or change it.
+// Photo uploads are switched off for now (the gallery, picker and server code stay in place).
+const PHOTO_EDITING = false;
+
 export function SplitHeader({ eyebrow, title, lead, accent = "red", slot, children, compact }: {
   eyebrow?: string; title: string; lead?: ReactNode; icon?: IconName; accent?: string; slot?: string; children?: ReactNode; compact?: boolean;
 }) {
@@ -146,7 +149,7 @@ export function SplitHeader({ eyebrow, title, lead, accent = "red", slot, childr
     <section className={`split${compact ? " compact" : ""}${photo ? "" : " no-photo"}`} style={accentStyle(accent)}>
       {photo && <div className="photo-panel"><img src={photo.src} alt={photo.name} /></div>}
       <div className="split-body">
-        {lib.canEdit && (
+        {PHOTO_EDITING && lib.canEdit && (
           <button className="photo-btn no-print" onClick={() => setPicking(true)}>
             <Icon name="camera" size={15} /> {photo ? "Change photo" : "Add photo"}
           </button>

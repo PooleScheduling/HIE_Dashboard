@@ -29,7 +29,11 @@ export interface ChartSeries {
 
 export interface Chart {
   title: string;
-  kind?: "bar" | "line"; // default "bar"
+  // default "bar". donut: shares of a whole · funnel: a pipeline · treemap: many categories ·
+  // dumbbell: two series as before/after · rings: percentages (or ratings out of max) as rings ·
+  // meter: percentages as filled tracks.
+  kind?: "bar" | "line" | "donut" | "funnel" | "treemap" | "dumbbell" | "rings" | "meter";
+  max?: number; // scale for rings and meter (default 100)
   categories: string[];
   series: ChartSeries[];
   orientation?: "vertical" | "horizontal";

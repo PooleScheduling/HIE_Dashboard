@@ -1,5 +1,20 @@
 import { useEffect, useState } from "react";
-import type { ReportData, Section, SurveySummary } from "../data/types";
+import type { Chart as ChartData, ReportData, Section, SurveySummary } from "../data/types";
+
+// A height that fits each kind of chart.
+export function chartHeight(c: ChartData): number {
+  const n = c.categories.length;
+  switch (c.kind) {
+    case "donut": return 270;
+    case "treemap": return 260;
+    case "funnel": return Math.max(180, n * 52 + 20);
+    case "rings": return Math.ceil(n / 4) * 165 + 10;
+    case "meter": return n * 30 + 20;
+    case "dumbbell": return n * 36 + 70;
+    case "line": return 230;
+    default: return c.orientation === "horizontal" ? Math.max(180, n * 26 + 40) : 230;
+  }
+}
 import { Chart } from "../components/Chart";
 import { DownloadMenu, Fact, Reveal, SourcesNote, SplitHeader, accentStyle, formatDate } from "../components/ui";
 import { Icon, iconFor } from "../components/Icon";
@@ -101,7 +116,7 @@ function ProgramDashboard({ s, data }: { s: Section; data: ReportData }) {
         <div className="grid two">
           {s.charts.map((c) => (
             <Reveal key={c.title} className="panel">
-              <Chart chart={c} height={c.orientation === "horizontal" ? Math.max(220, c.categories.length * 26 + 40) : 280} />
+              <Chart chart={c} height={chartHeight(c)} />
             </Reveal>
           ))}
         </div>
@@ -150,7 +165,7 @@ function Surveys({ list, accent }: { list: SurveySummary[]; accent: string }) {
           <div className="grid two">
             {v.charts.map((c) => (
               <Reveal key={c.title} className="panel">
-                <Chart chart={c} height={c.orientation === "horizontal" ? Math.max(200, c.categories.length * (c.series.length > 1 ? 40 : 28) + 50) : 260} />
+                <Chart chart={c} height={chartHeight(c)} />
               </Reveal>
             ))}
           </div>
