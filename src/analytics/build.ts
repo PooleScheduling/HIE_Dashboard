@@ -583,7 +583,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
   const sources: DataSource[] = datasets
     .filter((d) => d.id !== "settings")
     .map((d) => {
-      const type = d.id === "hub_checkins" ? "Live sheet" : d.id === "touchscreen" ? "Live feed" : "File upload";
+      const type = d.id === "touchscreen" ? "Live feed" : d.cadence === "Live" ? "Live sheet" : "File upload";
       return { id: d.id, dataset: d.id, name: d.name, owner: d.owner, feeds: areaLabel(d.area), kind: kindOf(d.id), howItGetsIn: type, type, link: opts.links?.[d.id], lastUpdated: dateCols[d.id] ? latestDate(d.id, dateCols[d.id]) : undefined };
     });
 

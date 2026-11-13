@@ -327,9 +327,9 @@ function setupDataHub() {
     /** @type {string[][]} */ const starter = [];
     for (const d of HIE.datasets) {
       if (d.id === "settings" || d.id === "stories") continue;
-      const type = d.id === "hub_checkins" ? "Live sheet" : d.id === "touchscreen" ? "Live feed" : "File upload";
+      const type = d.id === "touchscreen" ? "Live feed" : d.cadence === "Live" ? "Live sheet" : "File upload";
       const link = d.id === "hub_checkins" ? props.getProperty("KIOSK_SHEET_ID") || "" : d.id === "touchscreen" ? props.getProperty("TOUCHSCREEN_URL") || "" : "";
-      starter.push([d.id, d.likelySource.split(" (")[0], d.owner, type, link, d.id === "hub_checkins" ? d.sheetTab : "", "", d.description, "", ""]);
+      starter.push([d.id, d.likelySource.split(" (")[0], d.owner, type, link, type === "Live sheet" ? d.sheetTab : "", "", d.description, "", ""]);
     }
     sources.getRange(2, 1, starter.length, SOURCE_COLUMNS.length).setValues(starter);
   }
