@@ -68,6 +68,15 @@ export function gicsSector(raw: string): string {
   return alias.find(([re]) => re.test(s))?.[1] ?? raw.trim();
 }
 
+// HIE wall (touchscreen) screens, in the order the report shows them.
+export const WALL_SCREENS = ["left", "middle", "right"];
+// Some wall buttons carry a person's name: staff directory cards ("Directory: <name>") and the
+// Monthly Movers and Student Spotlight previews. Their taps still count, but the label is left
+// out of "Most tapped" so names never reach the report.
+export function wallLabelHasName(label: string): boolean {
+  return /^directory:|^mid > (monthly movers|student spotlight)/i.test(label);
+}
+
 // Suggested functional areas for internships. Not a standard list; teams can confirm or change it.
 export const FUNCTIONAL_AREAS = [
   "Accounting", "Finance", "Marketing", "Sales", "Operations and supply chain", "Human resources",

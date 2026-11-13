@@ -258,6 +258,56 @@ function stories(): Row[] {
   ];
 }
 
+// Touchscreen wall: one week from Oct 22, 2026, when the wall started counting. Mostly middle
+// and right screen visits of one to a few taps, busiest around midday, a few QR scans.
+// Uses its own random sequence so it doesn't change the other samples.
+function touchscreen(): Row[] {
+  const r = rng(20261022);
+  const pickR = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)];
+  const weightedR = <T,>(pairs: [T, number][]) => {
+    let x = r() * pairs.reduce((a, [, w]) => a + w, 0);
+    for (const [v, w] of pairs) if ((x -= w) <= 0) return v;
+    return pairs[pairs.length - 1][0];
+  };
+  const labels: Record<string, [string, number][]> = {
+    left: [["bar > Career", 5], ["bar > Practicum", 4], ["bar > Global", 4], ["stage > Next slide", 3]],
+    middle: [
+      ["btns > Directory Who can help, and where to find them", 5], ["tabs > Career Center", 2], ["tabs > Advising", 2], ["letters > B", 2],
+      ["who > ◀ Everyone", 3], ["btns > Building Map Find your way around Nelson Hall", 3], ["p-map > Close", 1],
+      ["btns > Learn More High-Impact Experiences at Poole", 3], ["hie-areas > Career Internships and mentors", 1], ["hie-areas > Global Study and work abroad", 1],
+      ["hie-areas > Community Villages and local impact", 1], ["opener > Tap here to play A welcome from the dean", 4], ["mid > Stop the video", 1],
+    ],
+    right: [
+      ["stage > Next slide", 10], ["btns > What’s Happening in Poole", 4], ["events > Corporate presentation", 2], ["sec-events > Close", 1],
+      ["btns > Student Spotlight", 3], ["sec-spot > Next", 4], ["btns > Monthly Movers", 2], ["btns > Join Packways", 2],
+      ["sec-orgs > Finance Club", 2], ["sec-orgs > Marketing Club", 1],
+    ],
+  };
+  const rows: Row[] = [];
+  const start = new Date(2026, 9, 22);
+  for (let day = 0; day < 7; day++) {
+    const date = addDays(start, day);
+    const weekend = date.getDay() === 0 || date.getDay() === 6;
+    const visits = weekend ? 2 + Math.floor(r() * 4) : 18 + Math.floor(r() * 14);
+    for (let v = 0; v < visits; v++) {
+      const screen = weightedR<string>([["middle", 45], ["right", 38], ["left", 17]]);
+      const hour = weightedR<number>([[8, 2], [9, 4], [10, 6], [11, 9], [12, 11], [13, 10], [14, 8], [15, 7], [16, 5], [17, 3], [18, 1]]);
+      const visit = Math.floor(r() * 36 ** 8).toString(36).padStart(8, "0");
+      let t = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, Math.floor(r() * 60), Math.floor(r() * 60));
+      const taps = 1 + Math.floor(-Math.log(1 - r()) * 2.5);
+      for (let i = 0; i < taps; i++) {
+        rows.push({ Time: `${iso(t)}T${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`, Type: "Tap", Label: weightedR(labels[screen]), Screen: screen, Visit: visit });
+        t = new Date(t.getTime() + (2 + Math.floor(r() * 12)) * 1000);
+      }
+    }
+    if (r() < 0.8) {
+      const t = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 10 + Math.floor(r() * 7), Math.floor(r() * 60));
+      rows.push({ Time: `${iso(t)}T${pad(t.getHours())}:${pad(t.getMinutes())}:00`, Type: "QR scan", Label: pickR(["hie", "practicum-apply", "poole.ncsu.edu/global/study-abroad/", "getinvolved.ncsu.edu/"]), Screen: "", Visit: "" });
+    }
+  }
+  return rows;
+}
+
 export const sampleRows: Rows = {
   hub_checkins: hub(),
   packways: packways(),
@@ -270,5 +320,6 @@ export const sampleRows: Rows = {
   global: global(),
   career: career(),
   stories: stories(),
+  touchscreen: touchscreen(),
   settings: [{ Setting: "Poole undergraduate enrollment", Value: "3000" }],
 };

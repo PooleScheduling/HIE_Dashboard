@@ -8,6 +8,7 @@ export interface Provenance {
   label: string; // e.g. "Annual impact report"
   updatedBy?: string;
   updatedOn?: string; // ISO date
+  link?: string; // where the source lives; opening it needs the viewer's own access
 }
 
 export interface Metric {
@@ -75,12 +76,19 @@ export interface Team {
   parent?: string; // Team.id this team reports into (for the org tree)
 }
 
+// One row of the Sources tab in the Data Hub (or, locally, one dataset).
 export interface DataSource {
+  id?: string; // row position in the Sources tab, used to ask for an import
+  dataset?: string; // dataset id
   name: string;
   owner: string;
   feeds: string;
   kind: SourceKind;
   howItGetsIn: string;
+  type?: string; // Live sheet · Live feed · Google Sheet import · File upload
+  link?: string;
+  year?: string;
+  rows?: number;
   lastUpdated?: string;
 }
 
@@ -117,6 +125,23 @@ export interface Coverage {
   source: Provenance;
 }
 
+// HIE Wall Usage: one entry per day (New York time) with totals only, so the page can
+// show any date range. Screens are always in the order left, middle, right.
+export interface WallDay {
+  date: string; // YYYY-MM-DD
+  visits: number[]; // visits that started this day, per screen
+  taps: number[]; // taps this day, per screen
+  hours: number[]; // 24 numbers: visits that started in each hour
+  depth: number[][]; // per screen: [quick look (1 tap), browsed (2 to 4), explored (5+)]
+  tops: Record<string, number>[]; // per screen: button label → taps (labels with names left out)
+  qr: Record<string, number>; // QR link → scans
+}
+
+export interface WallUsage {
+  days: WallDay[];
+  source: Provenance;
+}
+
 export interface ReportData {
   title: string;
   goal: string;
@@ -125,6 +150,7 @@ export interface ReportData {
   headline: Metric[];
   sections: Section[];
   hub: { weekly: Chart; hourly: Chart; weekday?: Chart; metrics: Metric[]; owner?: string };
+  wall?: WallUsage;
   teams: Team[];
   people: Person[];
   stories: Story[];

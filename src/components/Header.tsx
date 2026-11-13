@@ -1,12 +1,13 @@
 import { Icon } from "./Icon";
 
-export type View = "report" | "programs" | "hub" | "team" | "stories" | "contribute";
+export type View = "report" | "programs" | "hub" | "wall" | "team" | "stories" | "contribute";
 export type Theme = "light" | "dark";
 
 const tabs: { id: View; label: string }[] = [
   { id: "report", label: "Report" },
   { id: "programs", label: "Programs" },
   { id: "hub", label: "The Hub" },
+  { id: "wall", label: "HIE Wall" },
   { id: "stories", label: "Stories" },
 ];
 

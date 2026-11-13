@@ -22,6 +22,11 @@
 
   --live: #4a7a12; --live-soft: #edf3e3; --upload: #8a5a00; --upload-soft: #fbf1dc; --wait: #666666; --wait-soft: #eeeeee;
 
+  /* HIE Wall Usage page: the wall's own stats-page colors */
+  --w-bg: #f4f4f2; --w-surface: #fcfcfb; --w-border: #e3e2de; --w-text: #0b0b0b; --w-text-2: #52514e; --w-muted: #7a7974; --w-grid: #ecebe7;
+  --w-left: #2a78d6; --w-middle: #eb6834; --w-right: #1baf7a; --w-banner: #fff4d6; --w-banner-text: #5c4300;
+  --w-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
   --f-body: "Roboto", Arial, sans-serif;
   --f-cond: "Roboto Condensed", "Arial Narrow", Arial, sans-serif;
   --f-serif: "Roboto Slab", Georgia, serif;
@@ -36,6 +41,8 @@
   --a-career: #b0be55; --a-leadership: #ff8f8f; --a-hub: #74b6cc; --a-stories: #8b9de6; --a-contribute: #ff7a7a;
   --s1: #e8484a; --s2: #6f86d6; --s1-soft: #6b2c2e;
   --g3: #ff8a8a; --g2: #e8484a; --g1: #8f2a2c; --g0: #33363b;
+  --w-bg: #111110; --w-surface: #1a1a19; --w-border: #2e2e2c; --w-text: #f0efec; --w-text-2: #c3c2b7; --w-muted: #8f8e88; --w-grid: #2a2a28;
+  --w-left: #3987e5; --w-middle: #d95926; --w-right: #199e70; --w-banner: #3a3015; --w-banner-text: #f3dfa6;
   --live: #9ccc65; --live-soft: #22301a; --upload: #e6b24f; --upload-soft: #362b12; --wait: #a9acb1; --wait-soft: #2a2d31;
   color-scheme: dark;
 }
@@ -543,3 +550,35 @@ label.btn { cursor: pointer; }
   .cards { gap: 12px; }
   .two { grid-template-columns: 1fr; }
 }
+
+/* HIE Wall Usage: laid out like the wall's own stats page */
+.wall { background: var(--w-bg); color: var(--w-text); font: 15px/1.45 var(--w-font); max-width: 1100px; margin: 24px auto 48px; padding: 24px 16px 32px; border-radius: 12px; }
+.wall h1, .wall h2, .wall h3 { font-family: var(--w-font); color: var(--w-text); text-wrap: initial; }
+.wall h1 { font-size: 26px; letter-spacing: -0.01em; }
+.w-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
+.w-sub { color: var(--w-text-2); margin: 4px 0 0; }
+.w-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.w-controls select, .w-controls button { font: inherit; color: var(--w-text); background: var(--w-surface); border: 1px solid var(--w-border); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.w-banner { background: var(--w-banner); color: var(--w-banner-text); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; }
+.w-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.w-tile, .w-card { background: var(--w-surface); border: 1px solid var(--w-border); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.w-tlabel { color: var(--w-text-2); font-size: 13px; }
+.w-num { font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.w-tnote { color: var(--w-muted); font-size: 12px; }
+.w-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+.w-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+@media (max-width: 760px) { .w-grid2 { grid-template-columns: 1fr; } }
+.wall .w-card h2 { font-size: 16px; margin: 0 0 2px; }
+.w-hint { margin: 0 0 10px; color: var(--w-text-2); font-size: 13px; }
+.w-chart { position: relative; height: 280px; }
+.wall table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.wall th, .wall td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--w-grid); font-size: 14px; }
+.wall th { color: var(--w-text-2); font-weight: 600; font-size: 13px; font-family: var(--w-font); text-transform: none; letter-spacing: normal; }
+.wall td.n, .wall th.n { text-align: right; }
+.w-muted { color: var(--w-muted); }
+.w-tops { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 760px) { .w-tops { grid-template-columns: 1fr; } }
+.wall .w-tops h3 { font-size: 14px; margin: 0 0 6px; }
+.w-empty { color: var(--w-muted); font-size: 13px; }
+.w-foot { color: var(--w-muted); font-size: 12px; margin-top: 20px; }
+@media (max-width: 600px) { .wall { margin: 12px -16px 32px; border-radius: 0; } }

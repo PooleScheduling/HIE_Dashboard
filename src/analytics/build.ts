@@ -1,13 +1,13 @@
-import type { Chart, Coverage, DataSource, Metric, Provenance, ReportData, Section, SourceKind, Story, UploadTemplate } from "../data/types";
+import type { Chart, Coverage, DataSource, Metric, Provenance, ReportData, Section, SourceKind, Story, UploadTemplate, WallDay, WallUsage } from "../data/types";
 import { datasets, type Row, type Rows } from "./datasets";
 import { people, teams } from "./teams";
-import { COUNTY_TYPES, countyType, gicsSector } from "./reference";
+import { COUNTY_TYPES, WALL_SCREENS, countyType, gicsSector, wallLabelHasName } from "./reference";
 
 // Turns raw dataset rows into the report: every number, chart and note is computed here.
 // Runs in the browser (sample rows, local dev) and in Apps Script (rows from Google Sheets),
 // so it uses plain JavaScript only. Only totals come out; no row-level data is returned.
 
-export type BuildOptions = { asOf: string; kinds?: Record<string, SourceKind> };
+export type BuildOptions = { asOf: string; kinds?: Record<string, SourceKind>; links?: Record<string, string> };
 
 // ---------- small helpers ----------
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -96,12 +96,13 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     }
     return best || undefined;
   };
-  const dateCols: Record<string, string> = { hub_checkins: "Date", packways: "Completed on", sbip_applicants: "Applied on" };
+  const dateCols: Record<string, string> = { hub_checkins: "Date", packways: "Completed on", sbip_applicants: "Applied on", touchscreen: "Time" };
   const prov = (id: string): Provenance => ({
     kind: kindOf(id),
     label: ds(id).name,
     updatedBy: ds(id).owner,
     updatedOn: (dateCols[id] && latestDate(id, dateCols[id])) || asOf,
+    ...(opts.links?.[id] && kindOf(id) !== "sample" ? { link: opts.links[id] } : {}),
   });
   const metric = (id: string, src: string, value: string, label: string, extra: Partial<Metric> = {}): Metric => ({ id, value, label, source: prov(src), ...extra });
 
@@ -423,6 +424,47 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     };
   }
 
+  // ----- HIE Wall Usage (touchscreen wall) -----
+  // Mirrors the wall's own stats page: a visit is one screen's visit ID, counted on the day
+  // and hour of its first tap. Only per-day totals leave here.
+  function wall(): WallUsage | undefined {
+    const T = R("touchscreen");
+    const days = new Map<string, WallDay>();
+    const day = (k: string) => {
+      let d = days.get(k);
+      if (!d) days.set(k, (d = { date: k, visits: [0, 0, 0], taps: [0, 0, 0], hours: Array(24).fill(0) as number[], depth: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], tops: [{}, {}, {}], qr: {} }));
+      return d;
+    };
+    const visits = new Map<string, { s: number; first: Date; n: number }>();
+    for (const r of T) {
+      const d = parseDate(val(r, "Time"));
+      if (!d) continue;
+      const label = val(r, "Label");
+      if (/qr/i.test(val(r, "Type"))) {
+        const q = day(isoDay(d)).qr;
+        q[label] = (q[label] ?? 0) + 1;
+        continue;
+      }
+      const s = WALL_SCREENS.indexOf(val(r, "Screen").toLowerCase());
+      if (s < 0) continue;
+      const dd = day(isoDay(d));
+      dd.taps[s]++;
+      if (label && !wallLabelHasName(label)) dd.tops[s][label] = (dd.tops[s][label] ?? 0) + 1;
+      const id = `${s}:${val(r, "Visit") || isoDay(d) + d.getHours()}`;
+      const v = visits.get(id);
+      if (!v) visits.set(id, { s, first: d, n: 1 });
+      else { v.n++; if (d < v.first) v.first = d; }
+    }
+    for (const v of visits.values()) {
+      const dd = day(isoDay(v.first));
+      dd.visits[v.s]++;
+      dd.hours[v.first.getHours()]++;
+      dd.depth[v.s][v.n === 1 ? 0 : v.n < 5 ? 1 : 2]++;
+    }
+    if (!days.size) return undefined;
+    return { days: [...days.values()].sort((a, b) => (a.date < b.date ? -1 : 1)), source: prov("touchscreen") };
+  }
+
   // ----- The Hub -----
   function hub(): ReportData["hub"] {
     const src = prov("hub_checkins");
@@ -536,11 +578,14 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
   const cov = coverage();
   const multi = cov.byCount.slice(1).reduce((a, b) => a + b.n, 0);
 
-  const areaLabel = (id: string) => sections.find((s) => s.id === id)?.kicker ?? (id === "hub" ? "The Hub" : id === "stories" ? "Stories" : "Settings");
+  const areaLabel = (id: string) => sections.find((s) => s.id === id)?.kicker ?? (id === "hub" ? "The Hub" : id === "wall" ? "HIE Wall Usage" : id === "stories" ? "Stories" : "Settings");
   const templates: UploadTemplate[] = datasets.map((d) => ({ ...d, kind: kindOf(d.id), rows: R(d.id).length }));
   const sources: DataSource[] = datasets
     .filter((d) => d.id !== "settings")
-    .map((d) => ({ name: d.name, owner: d.owner, feeds: areaLabel(d.area), kind: kindOf(d.id), howItGetsIn: d.cadence, lastUpdated: dateCols[d.id] ? latestDate(d.id, dateCols[d.id]) : undefined }));
+    .map((d) => {
+      const type = d.id === "hub_checkins" ? "Live sheet" : d.id === "touchscreen" ? "Live feed" : "File upload";
+      return { id: d.id, dataset: d.id, name: d.name, owner: d.owner, feeds: areaLabel(d.area), kind: kindOf(d.id), howItGetsIn: type, type, link: opts.links?.[d.id], lastUpdated: dateCols[d.id] ? latestDate(d.id, dateCols[d.id]) : undefined };
+    });
 
   return {
     title: "Poole HIE Engagement Report",
@@ -554,6 +599,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     ],
     sections,
     hub: hubData,
+    wall: wall(),
     teams,
     people,
     stories,

@@ -5,12 +5,13 @@ import { Header, type Theme, type View } from "./components/Header";
 import { ReportPage } from "./pages/ReportPage";
 import { ProgramsPage } from "./pages/ProgramsPage";
 import { HubPage } from "./pages/HubPage";
+import { WallPage } from "./pages/WallPage";
 import { StoriesPage } from "./pages/StoriesPage";
 import { ContributePage } from "./pages/ContributePage";
 import { PhotosProvider } from "./lib/photos";
 
 // The Team page (pages/TeamPage.tsx) is on hold, so it has no tab or route for now.
-const views: View[] = ["report", "programs", "hub", "stories", "contribute"];
+const views: View[] = ["report", "programs", "hub", "wall", "stories", "contribute"];
 // Links look like #hub or #programs/internships.
 const fromHash = (): { view: View; anchor?: string } => {
   const [v, sub] = window.location.hash.slice(1).split("/");
@@ -66,6 +67,7 @@ export default function App() {
         {data && view === "report" && <ReportPage data={data} go={go} />}
         {data && view === "programs" && <ProgramsPage data={data} anchor={anchor} />}
         {data && view === "hub" && <HubPage data={data} />}
+        {data && view === "wall" && <WallPage data={data} />}
         {data && view === "stories" && <StoriesPage data={data} />}
         {data && view === "contribute" && <ContributePage data={data} />}
       </main>
