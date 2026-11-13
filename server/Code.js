@@ -81,9 +81,11 @@ function getReport() {
   for (const d of HIE.datasets) {
     /** @type {Record<string, string>[]} */ let r = [];
     for (const s of all.filter((x) => x.Dataset === d.id && /^live/i.test(x.Type))) {
+      // Program sheets (form responses, trackers) are mapped to the template's columns here;
+      // names, emails and other personal fields are dropped and never leave this function.
       const got = /feed/i.test(s.Type)
         ? readTouchscreen_(s.Link, props.getProperty("TOUCHSCREEN_KEY") || "")
-        : readLiveSheet_(s.Link, s["Source tab"] || d.sheetTab);
+        : HIE.adaptRows(d.id, readLiveSheet_(s.Link, s["Source tab"] || (d.id === "hub_checkins" ? d.sheetTab : "")), { year: s.Year || "" });
       if (got.length) { r = r.concat(got); kinds[d.id] = "live"; }
       if (s.Link && !links[d.id]) links[d.id] = linkUrl_(s.Link, s.Type);
     }
@@ -162,14 +164,19 @@ function sheetId_(/** @type {string} */ link) {
 }
 
 /**
- * Reads a source sheet. Read only: nothing here changes the source.
+ * Reads a source sheet. Read only: nothing here changes the source. The tab is the one named
+ * in the Sources tab, else the one the link points at (#gid=...), else the first tab.
  * @param {string} link
  * @param {string} tab
  */
 function readLiveSheet_(link, tab) {
   const book = link ? openSheet_(sheetId_(link)) : null;
   if (!book) return [];
-  return readTab_(book.getSheetByName(tab) || book.getSheets()[0]);
+  const gid = (/[#&?]gid=(\d+)/.exec(String(link)) || [])[1];
+  const sheet = (tab && book.getSheetByName(tab))
+    || (gid ? book.getSheets().find((sh) => String(sh.getSheetId()) === gid) : null)
+    || book.getSheets()[0];
+  return readTab_(sheet);
 }
 
 /**

@@ -51,6 +51,7 @@ export function gicsSector(raw: string): string {
   const exact = GICS_SECTORS.find((g) => g.toLowerCase() === s);
   if (exact) return exact;
   const alias: [RegExp, string][] = [
+    [/gov|non-?profit|public sector/, OTHER_SECTOR], // first, so "Non-profit/food & beverage" is a nonprofit
     [/payment|fintech|transaction/, "Financials"], // moved from IT to Financials in MSCI's 2023 GICS update
     [/^it$|tech|software/, "Information Technology"],
     [/health|medical|pharma|biotech/, "Health Care"],
@@ -63,7 +64,6 @@ export function gicsSector(raw: string): string {
     [/chemical|material|mining|paper|packag/, "Materials"],
     [/oil|gas|energy/, "Energy"],
     [/utilit/, "Utilities"],
-    [/gov|nonprofit|non-profit|public/, OTHER_SECTOR],
   ];
   return alias.find(([re]) => re.test(s))?.[1] ?? raw.trim();
 }

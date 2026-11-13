@@ -2,3 +2,4 @@
 export { buildReport } from "./build";
 export { datasets } from "./datasets";
 export { sampleRows } from "./samples";
+export { adaptRows } from "./adapters";

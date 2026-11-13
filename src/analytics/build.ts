@@ -167,6 +167,8 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     const latest = stats[stats.length - 1];
     const prev = stats[stats.length - 2];
     const done = [...stats].reverse().find((s) => s.placed > 0) ?? latest;
+    // Program sheets may only have applications so far; outcome charts appear once statuses do.
+    const hasOutcomes = A.some((r) => /interview|placed/i.test(val(r, "Status")));
     const ch = prev ? change(latest.applicants, prev.applicants) : null;
 
     // Applications per week for the latest cohort.
@@ -186,18 +188,31 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     const emp = (c: string) => E.filter((r) => val(r, "Cohort") === c);
     const empLatest = emp(latest.c);
     const empDone = emp(done.c);
-    const hosts = empDone.filter((r) => /host/i.test(val(r, "Status")));
+    const isHost = (r: Row) => /host|confirm|commit|signed|placed/i.test(val(r, "Status"));
+    const hosts = empDone.filter(isHost);
+    const hasHosts = E.some(isHost);
     const ruralHosts = hosts.filter((r) => countyType(val(r, "County")) === "Rural");
     const ruralCounties = uniq(ruralHosts.map((r) => val(r, "County")));
-    const allHosts = E.filter((r) => /host/i.test(val(r, "Status")));
+    const allHosts = E.filter(isHost);
     const placedAll = A.filter((r) => /placed/i.test(val(r, "Status")));
 
     const applicantsM = metric("i-applicants", "sbip_applicants", fmt(latest.applicants), `students applied for ${latest.c}`, ch !== null && prev ? { change: `${signed(ch)} vs ${prev.c}` } : {});
     const metrics = [
       applicantsM,
-      metric("i-interviewed", "sbip_applicants", fmt(latest.interviewed), `invited to interview for ${latest.c}`),
+      hasOutcomes
+        ? metric("i-interviewed", "sbip_applicants", fmt(latest.interviewed), `invited to interview for ${latest.c}`)
+        : metric("i-total", "sbip_applicants", fmt(A.length), `applications across ${stats.length} ${stats.length === 1 ? "cohort" : "cohorts"}`),
     ];
-    if (E.length) {
+    if (E.length && !hasHosts) {
+      const latestEmp = [...cohortsOf(E)].pop() ?? latest.c;
+      const inLatest = emp(latestEmp);
+      const typed = byCountyType(inLatest);
+      const rural = typed.find(([t]) => t === "Rural")?.[1] ?? 0;
+      const located = typed.reduce((a, [, n]) => a + n, 0);
+      metrics.push(metric("i-contacted", "sbip_employers", fmt(inLatest.length), `businesses in the employer tracker for ${latestEmp}`));
+      if (located) metrics.push(metric("i-rural-share", "sbip_employers", `${pct(rural, located)}%`, `of those with a known NC location are in rural counties`));
+    }
+    if (E.length && hasHosts) {
       metrics.push(
         metric("i-contacted", "sbip_employers", fmt(empLatest.length), `businesses contacted for ${latest.c}`),
         metric("i-hosts", "sbip_employers", fmt(hosts.length), `businesses hosted interns in ${done.c}`),
@@ -205,20 +220,32 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         metric("i-rural-share", "sbip_employers", `${pct(ruralHosts.length, hosts.length)}%`, `of ${done.c} host businesses are in rural counties`),
       );
     }
-    const charts: Chart[] = [
+    const charts: Chart[] = hasOutcomes ? [
       {
         ...twoSeries("Applicants and placements by cohort", stats.map((s) => s.c), ["Applicants", stats.map((s) => s.applicants)], ["Placed", stats.map((s) => s.placed)], stats.map((s) => (s.placed ? String(s.placed) : "—"))),
         note: stats.some((s) => !s.placed) ? `Placements for ${stats.filter((s) => !s.placed).map((s) => s.c).join(", ")} are still in progress.` : undefined,
       },
       hbar(`Applicant funnel, ${done.c}`, [["Applied", done.applicants], ["Interviewed", done.interviewed], ["Placed", done.placed]], [done.applicants, done.interviewed, done.placed].map((n) => `${n} (${pct(n, done.applicants)}%)`)),
-    ];
+    ] : [bar("Applicants by cohort", stats.map((s) => s.c), stats.map((s) => s.applicants))];
     if (weekVals.length) charts.push(bar(`Applications per week, ${latest.c}`, weekCats, weekVals));
-    if (empLatest.length) {
+    const majors = countBy(latest.rows, "Major");
+    if (majors.length) charts.push(hbar(`Applicants by major, ${latest.c}`, majors.slice(0, 10), majors.slice(0, 10).map(([, n]) => `${n} (${pct(n, latest.applicants)}%)`)));
+    const ruralTies = countBy(latest.rows, "Rural connection");
+    if (ruralTies.length) charts.push(hbar(`Applicants' connection to a rural community, ${latest.c}`, ruralTies.slice(0, 8)));
+    if (E.length && !hasHosts) {
+      const status = countBy(E, "Status");
+      if (status.length) charts.push(hbar("Employer outreach by status", status.slice(0, 10)));
+      const typed = byCountyType(E);
+      if (typed.length) charts.push({ ...hbar("Businesses contacted by county type", typed), note: "Only businesses whose location matches an NC county or town. County types follow the NC Rural Center's 2020 Census definitions." });
+      const sec = countMapped(E, "Industry sector", gicsSector);
+      if (sec.length) charts.push(hbar("Businesses contacted by industry sector", sec.slice(0, 12)));
+    }
+    if (empLatest.length && hasHosts) {
       const interested = empLatest.filter((r) => /interest|host/i.test(val(r, "Status"))).length;
       const hosting = empLatest.filter((r) => /host/i.test(val(r, "Status"))).length;
       charts.push(hbar(`Employer outreach, ${latest.c}`, [["Contacted", empLatest.length], ["Interested", interested], ["Hosting", hosting]], [empLatest.length, interested, hosting].map((n) => `${n} (${pct(n, empLatest.length)}%)`)));
     }
-    if (empDone.length) {
+    if (empDone.length && hasHosts) {
       const contactedT = new Map(byCountyType(empDone));
       const hostT = new Map(byCountyType(hosts));
       const types = COUNTY_TYPES.filter((t) => contactedT.get(t) || hostT.get(t));
@@ -232,6 +259,33 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     const roles = countBy(placedAll, "Functional area");
     if (roles.length) charts.push(hbar("Placed interns by functional area, all cohorts", roles));
     return { ...base, summary: `applied for ${latest.c} internships with small and rural businesses`, cardMetric: applicantsM, metrics, charts };
+    function cohortsOf(rows: Row[]) { return sortTerms(rows.map((r) => val(r, "Cohort")).filter((c) => /\d{4}/.test(c))); }
+  }
+
+  // ----- Sales Excellence Certificate (shown with practicum) -----
+  // Acceptance and completion appear once the sheet records them; until then, applicants only.
+  function salesPart(S: Row[]): { metrics: Metric[]; charts: Chart[]; summary: string } {
+    if (!S.length) return { metrics: [], charts: [], summary: "" };
+    const cycles = sortTerms(S.map((r) => val(r, "Cycle")));
+    const c = cycles.map((cy) => {
+      const rows = S.filter((r) => val(r, "Cycle") === cy);
+      const accepted = rows.filter((r) => yes(val(r, "Accepted")));
+      const decided = accepted.filter((r) => val(r, "Completed") !== "");
+      return { cy, rows, apps: rows.length, accepted: accepted.length, completed: decided.filter((r) => yes(val(r, "Completed"))).length, decided: decided.length };
+    });
+    const cl = c[c.length - 1];
+    const cd = [...c].reverse().find((x) => x.decided > 0);
+    const hasDecisions = S.some((r) => val(r, "Accepted") !== "");
+    const metrics: Metric[] = [hasDecisions
+      ? metric("s-accepted", "sales_cert", fmt(cl.accepted), `accepted to the Sales Excellence Certificate, ${cl.cy} (${pct(cl.accepted, cl.apps)}% of ${cl.apps} applicants)`)
+      : metric("s-applicants", "sales_cert", fmt(cl.apps), `students applied to the Sales Excellence Certificate, ${cl.cy}`)];
+    if (cd) metrics.push(metric("s-completed", "sales_cert", `${pct(cd.completed, cd.decided)}%`, `of ${cd.cy} certificate students completed it`));
+    const charts: Chart[] = [hasDecisions
+      ? twoSeries("Sales Excellence Certificate by cycle", cycles, ["Applicants", c.map((x) => x.apps)], ["Accepted", c.map((x) => x.accepted)])
+      : bar("Sales Excellence Certificate applicants by cycle", cycles, c.map((x) => x.apps))];
+    const majors = countBy(cl.rows, "Major");
+    if (majors.length) charts.push(hbar(`Sales Excellence Certificate applicants by major, ${cl.cy}`, majors.slice(0, 10)));
+    return { metrics, charts, summary: `students applied to the Sales Excellence Certificate in ${cl.cy}` };
   }
 
   // ----- Practicum and certificates -----
@@ -239,7 +293,10 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     const P = R("practicum");
     const S = R("sales_cert");
     const base: Section = { id: "practicum", title: "Practicum courses and certificates", kicker: "Practicum and certificates", owner: ds("practicum").owner, status: kindOf("practicum"), summary: "Client projects with business partners and the Sales Excellence Certificate", metrics: [], charts: [] };
-    if (!P.length) return base;
+    if (!P.length) {
+      const sales = salesPart(S);
+      return sales.metrics.length ? { ...base, status: kindOf("sales_cert"), summary: sales.summary, cardMetric: sales.metrics[0], metrics: sales.metrics, charts: sales.charts } : base;
+    }
     const isOpen = (r: Row) => /open/i.test(val(r, "Course type"));
     const terms = sortTerms(P.map((r) => val(r, "Term")));
     const t = terms.map((term) => {
@@ -277,20 +334,9 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     if (openRows.length) {
       charts.push(twoSeries("Students enrolled by course type", terms, ["Application courses", t.map((x) => x.admitted - x.dropped)], ["Open enrollment", terms.map(openEnrolled)]));
     }
-    if (S.length) {
-      const cycles = sortTerms(S.map((r) => val(r, "Cycle")));
-      const c = cycles.map((cy) => {
-        const rows = S.filter((r) => val(r, "Cycle") === cy);
-        const accepted = rows.filter((r) => yes(val(r, "Accepted")));
-        const decided = accepted.filter((r) => val(r, "Completed") !== "");
-        return { cy, apps: rows.length, accepted: accepted.length, completed: decided.filter((r) => yes(val(r, "Completed"))).length, decided: decided.length };
-      });
-      const cl = c[c.length - 1];
-      const cd = [...c].reverse().find((x) => x.decided > 0);
-      metrics.push(metric("s-accepted", "sales_cert", fmt(cl.accepted), `accepted to the Sales Excellence Certificate, ${cl.cy} (${pct(cl.accepted, cl.apps)}% of ${cl.apps} applicants)`));
-      if (cd) metrics.push(metric("s-completed", "sales_cert", `${pct(cd.completed, cd.decided)}%`, `of ${cd.cy} certificate students completed it`));
-      charts.push(twoSeries("Sales Excellence Certificate by cycle", cycles, ["Applicants", c.map((x) => x.apps)], ["Accepted", c.map((x) => x.accepted)]));
-    }
+    const sales = salesPart(S);
+    metrics.push(...sales.metrics);
+    charts.push(...sales.charts);
     return { ...base, summary: `students enrolled in practicum courses in ${latest.term}, from ${fmt(latest.apps)} applications`, cardMetric: enrolledM, metrics, charts };
   }
 
