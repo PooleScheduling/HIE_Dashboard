@@ -390,10 +390,16 @@ function openSheet_(id) {
   }
 }
 
-/** Reads a tab into objects keyed by header row. */
+/**
+ * Reads a tab into objects keyed by its header row. The header is the first of the top five rows
+ * with at least three filled cells, so sheets with a title or blank row above the header work.
+ */
 function readTab_(/** @type {GoogleAppsScript.Spreadsheet.Sheet | null} */ sheet) {
   if (!sheet || sheet.getLastRow() < 2) return [];
-  const [head, ...body] = sheet.getDataRange().getDisplayValues();
+  const all = sheet.getDataRange().getDisplayValues();
+  const hi = Math.max(0, all.slice(0, 5).findIndex((r) => r.filter((c) => String(c).trim() !== "").length >= 3));
+  const head = all[hi];
+  const body = all.slice(hi + 1);
   return body
     .filter((r) => r.some((c) => c !== ""))
     .map((r) => Object.fromEntries(head.map((h, i) => [String(h).trim(), String(r[i]).trim()])));

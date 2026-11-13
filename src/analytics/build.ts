@@ -47,6 +47,19 @@ function countBy(rows: Row[], key: string): [string, number][] {
   return [...m.entries()].sort((a, b) => b[1] - a[1]);
 }
 
+// Joins rows that describe the same thing (e.g. one applicant read from two tabs), keeping
+// every non-blank value.
+function mergeRows(rows: Row[], key: (r: Row) => string): Row[] {
+  const m = new Map<string, Row>();
+  for (const r of rows) {
+    const k = key(r);
+    const prev = m.get(k);
+    if (!prev) { m.set(k, { ...r }); continue; }
+    for (const [c, v] of Object.entries(r)) if (v && !prev[c]) prev[c] = v;
+  }
+  return [...m.values()];
+}
+
 // Counts rows by a cleaned-up value (e.g. county → county type), dropping blanks.
 function countMapped(rows: Row[], key: string, f: (v: string) => string): [string, number][] {
   return countBy(rows.map((r) => ({ v: f(val(r, key)) })), "v");
@@ -151,34 +164,40 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
 
   // ----- Small Business Internship Program -----
   function internshipSection(): Section {
-    const A = R("sbip_applicants");
+    // Shows what the program's sheets record, as they record it: applications per cohort and the
+    // first-round review columns (status, recommendations, decisions, scores) with their own labels.
+    // Nothing is inferred about who was placed.
+    const A = mergeRows(R("sbip_applicants"), (r) => `${val(r, "Cohort")}|${val(r, "Student key")}`);
     const E = R("sbip_employers");
     const base: Section = { id: "internships", title: "Small Business Internship Program", kicker: "Internships", owner: ds("sbip_applicants").owner, status: kindOf("sbip_applicants"), summary: "Internships with small and rural North Carolina businesses", metrics: [], charts: [] };
     if (!A.length) return base;
     const cohorts = sortTerms(A.map((r) => val(r, "Cohort")));
-    const stats = cohorts.map((c) => {
-      const rows = A.filter((r) => val(r, "Cohort") === c);
-      return {
-        c,
-        applicants: rows.length,
-        interviewed: rows.filter((r) => /interview|placed/i.test(val(r, "Status"))).length,
-        placed: rows.filter((r) => /placed/i.test(val(r, "Status"))).length,
-        rows,
-      };
-    });
+    const stats = cohorts.map((c) => ({ c, rows: A.filter((r) => val(r, "Cohort") === c), applicants: A.filter((r) => val(r, "Cohort") === c).length }));
     const latest = stats[stats.length - 1];
-    const done = [...stats].reverse().find((s) => s.placed > 0) ?? latest;
     // "This year" is the latest cohort whose summer has started; later ones are still recruiting.
     const yearOf = (c: string) => Number((/(\d{4})/.exec(c) ?? [0, "0"])[1]);
     const started = (c: string) => yearOf(c) < today.getFullYear() || (yearOf(c) === today.getFullYear() && today.getMonth() >= 4);
     const focus = [...stats].reverse().find((s) => started(s.c)) ?? latest;
     const before = stats[stats.indexOf(focus) - 1];
     const upcoming = stats.filter((s) => !started(s.c));
-    // Program sheets may only have applications so far; outcome charts appear once statuses do.
-    const hasOutcomes = A.some((r) => /interview|placed/i.test(val(r, "Status")));
+    const F = focus.rows;
 
-    // Applications per week for the latest cohort.
-    const dates = latest.rows.map((r) => parseDate(val(r, "Applied on"))).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime());
+    const fc = before ? change(focus.applicants, before.applicants) : null;
+    const applicantsM = metric("i-applicants", "sbip_applicants", fmt(focus.applicants), `students applied for ${focus.c}`, fc !== null && before ? { change: `${signed(fc)} vs ${before.c}` } : {});
+    const metrics: Metric[] = [applicantsM];
+    const interview = F.filter((r) => /interview/i.test(val(r, "Status"))).length;
+    if (interview) metrics.push(metric("i-interview", "sbip_applicants", fmt(interview), `marked "Interview" in the first-round review, ${focus.c}`));
+    const scores = F.map((r) => Number(val(r, "Score"))).filter((n) => n > 0);
+    if (scores.length) metrics.push(metric("i-score", "sbip_applicants", (scores.reduce((x, y) => x + y, 0) / scores.length).toFixed(1), `average application score, ${focus.c} (${scores.length} scored)`));
+    for (const u of upcoming) metrics.push(metric(`i-next-${yearOf(u.c)}`, "sbip_applicants", fmt(u.applicants), `applications so far for ${u.c} (still open)`));
+    if (E.length) {
+      const latestEmp = cohortsOf(E).pop() ?? latest.c;
+      const inLatest = E.filter((r) => val(r, "Cohort") === latestEmp);
+      metrics.push(metric("i-contacted", "sbip_employers", fmt(inLatest.length), `businesses in the employer tracker for ${latestEmp}`));
+    }
+
+    // Applications per week for the most recent cohort.
+    const dates = latest.rows.map((r) => parseDate(val(r, "Applied on"))).filter((d): d is Date => !!d).sort((x, y) => x.getTime() - y.getTime());
     const weekCats: string[] = [];
     const weekVals: number[] = [];
     if (dates.length) {
@@ -191,84 +210,40 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       }
     }
 
-    const emp = (c: string) => E.filter((r) => val(r, "Cohort") === c);
-    const empLatest = emp(latest.c);
-    const empDone = emp(done.c);
-    const isHost = (r: Row) => /host|confirm|commit|signed|placed/i.test(val(r, "Status"));
-    const hosts = empDone.filter(isHost);
-    const hasHosts = E.some(isHost);
-    const ruralHosts = hosts.filter((r) => countyType(val(r, "County")) === "Rural");
-    const ruralCounties = uniq(ruralHosts.map((r) => val(r, "County")));
-    const allHosts = E.filter(isHost);
-    const placedAll = A.filter((r) => /placed/i.test(val(r, "Status")));
-
-    const fc = before ? change(focus.applicants, before.applicants) : null;
-    const applicantsM = metric("i-applicants", "sbip_applicants", fmt(focus.applicants), `students applied for ${focus.c}`, fc !== null && before ? { change: `${signed(fc)} vs ${before.c}` } : {});
-    const metrics = [
-      applicantsM,
-      hasOutcomes
-        ? metric("i-interviewed", "sbip_applicants", fmt(focus.interviewed), `invited to interview for ${focus.c}`)
-        : metric("i-total", "sbip_applicants", fmt(A.length), `applications across ${stats.length} ${stats.length === 1 ? "cohort" : "cohorts"}`),
-      ...upcoming.map((u) => metric(`i-next-${yearOf(u.c)}`, "sbip_applicants", fmt(u.applicants), `applications so far for ${u.c} (still open)`)),
-    ];
-    if (E.length && !hasHosts) {
-      const latestEmp = [...cohortsOf(E)].pop() ?? latest.c;
-      const inLatest = emp(latestEmp);
-      const typed = byCountyType(inLatest);
-      const rural = typed.find(([t]) => t === "Rural")?.[1] ?? 0;
-      const located = typed.reduce((a, [, n]) => a + n, 0);
-      metrics.push(metric("i-contacted", "sbip_employers", fmt(inLatest.length), `businesses in the employer tracker for ${latestEmp}`));
-      if (located) metrics.push(metric("i-rural-share", "sbip_employers", `${pct(rural, located)}%`, `of those with a known NC location are in rural counties`));
-    }
-    if (E.length && hasHosts) {
-      metrics.push(
-        metric("i-contacted", "sbip_employers", fmt(empLatest.length), `businesses contacted for ${latest.c}`),
-        metric("i-hosts", "sbip_employers", fmt(hosts.length), `businesses hosted interns in ${done.c}`),
-        metric("i-rural", "sbip_employers", String(ruralCounties.length), `rural counties with a host business, ${done.c}`),
-        metric("i-rural-share", "sbip_employers", `${pct(ruralHosts.length, hosts.length)}%`, `of ${done.c} host businesses are in rural counties`),
-      );
-    }
-    const charts: Chart[] = hasOutcomes ? [
-      {
-        ...twoSeries("Applicants and placements by cohort", stats.map((s) => s.c), ["Applicants", stats.map((s) => s.applicants)], ["Placed", stats.map((s) => s.placed)], stats.map((s) => (s.placed ? String(s.placed) : "—"))),
-        note: stats.some((s) => !s.placed) ? `Placements for ${stats.filter((s) => !s.placed).map((s) => s.c).join(", ")} are still in progress.` : undefined,
-      },
-      as("funnel", hbar(`Applicant funnel, ${done.c}`, [["Applied", done.applicants], ["Interviewed", done.interviewed], ["Placed", done.placed]])),
-    ] : [{ ...bar("Applicants by cohort", stats.map((s) => s.c), stats.map((s) => s.applicants)), note: upcoming.length ? `${upcoming.map((u) => u.c).join(", ")} is still taking applications.` : undefined }];
+    const charts: Chart[] = [{ ...bar("Applicants by cohort", stats.map((s) => s.c), stats.map((s) => s.applicants)), note: upcoming.length ? `${upcoming.map((u) => u.c).join(", ")} is still taking applications.` : undefined }];
     if (weekVals.length) charts.push(as("line", bar(`Applications per week, ${latest.c}`, weekCats, weekVals)));
-    const majors = countBy(focus.rows, "Major");
+    // The review columns, with the sheet's own labels.
+    const review: [string, string][] = [["Status", "First-round status"], ["Recommendation", "Reviewer recommendations"], ["Decision", "Decisions"], ["Preliminary decline", "Preliminary decline?"]];
+    for (const [col, title] of review) {
+      const c = countBy(F, col);
+      if (c.length) charts.push(as("donut", hbar(`${title}, ${focus.c}`, c.slice(0, 8))));
+    }
+    if (scores.length) {
+      const byScore = countBy(scores.map((n) => ({ s: String(n) })), "s").sort((x, y) => Number(x[0]) - Number(y[0]));
+      charts.push(bar(`Application scores, ${focus.c}`, byScore.map((x) => x[0]), byScore.map((x) => x[1])));
+    }
+    const heard = countBy(F.flatMap((r) => val(r, "Heard about").split(/,\s*(?=[A-Z])/).map((h) => ({ h: h.trim() }))), "h");
+    if (heard.length) charts.push(as("treemap", hbar(`How applicants heard about the program, ${focus.c}`, heard.slice(0, 10))));
+    const majors = countBy(F, "Major");
     if (majors.length) charts.push(as("treemap", hbar(`Applicants by major, ${focus.c}`, majors.slice(0, 12))));
-    const ruralTies = countBy(focus.rows, "Rural connection");
-    if (ruralTies.length) charts.push(as("donut", hbar(`Applicants' connection to a rural community, ${focus.c}`, ruralTies.slice(0, 6))));
-    if (E.length && !hasHosts) {
+    const standing = countBy(F, "Class standing");
+    if (standing.length) charts.push(as("donut", hbar(`Class standing, ${focus.c}`, standing.slice(0, 6))));
+    const ruralTies = countBy(F, "Rural connection");
+    if (ruralTies.length) charts.push(as("donut", hbar(`Connection to a rural community, ${focus.c}`, ruralTies.slice(0, 6))));
+    const region = countBy(F, "Region");
+    if (region.length) charts.push(as("treemap", hbar(`Region, ${focus.c}`, region.slice(0, 10))));
+    if (E.length) {
       const status = countBy(E, "Status");
-      if (status.length) charts.push(as("donut", hbar("Employer outreach by status", status.slice(0, 7))));
+      if (status.length) charts.push(as("donut", hbar("Employer tracker by status", status.slice(0, 8))));
       const typed = byCountyType(E);
-      if (typed.length) charts.push({ ...as("donut", hbar("Businesses contacted by county type", typed)), note: "Only businesses whose location matches an NC county or town. County types follow the NC Rural Center's 2020 Census definitions." });
+      if (typed.length) charts.push({ ...as("donut", hbar("Businesses in the tracker by county type", typed)), note: "Only businesses whose location matches an NC county or town. County types follow the NC Rural Center's 2020 Census definitions." });
       const sec = countMapped(E, "Industry sector", gicsSector);
-      if (sec.length) charts.push(as("treemap", hbar("Businesses contacted by industry sector", sec.slice(0, 12))));
+      if (sec.length) charts.push(as("treemap", hbar("Businesses in the tracker by industry sector", sec.slice(0, 12))));
     }
-    if (empLatest.length && hasHosts) {
-      const interested = empLatest.filter((r) => /interest|host/i.test(val(r, "Status"))).length;
-      const hosting = empLatest.filter((r) => /host/i.test(val(r, "Status"))).length;
-      charts.push(as("funnel", hbar(`Employer outreach, ${latest.c}`, [["Contacted", empLatest.length], ["Interested", interested], ["Hosting", hosting]])));
-    }
-    if (empDone.length && hasHosts) {
-      const contactedT = new Map(byCountyType(empDone));
-      const hostT = new Map(byCountyType(hosts));
-      const types = COUNTY_TYPES.filter((t) => contactedT.get(t) || hostT.get(t));
-      charts.push({
-        ...twoSeries(`Businesses by county type, ${done.c}`, types, ["Contacted", types.map((t) => contactedT.get(t) ?? 0)], ["Hosting", types.map((t) => hostT.get(t) ?? 0)]),
-        note: "County types follow the NC Rural Center's 2020 Census definitions.",
-      });
-    }
-    const sectors = countMapped(allHosts, "Industry sector", gicsSector);
-    if (sectors.length) charts.push(as("treemap", hbar("Host businesses by industry sector, all cohorts", sectors)));
-    const roles = countBy(placedAll, "Functional area");
-    if (roles.length) charts.push(as("donut", hbar("Placed interns by functional area, all cohorts", roles.slice(0, 7))));
     return { ...base, summary: `applied for ${focus.c} internships with small and rural businesses${upcoming.length ? `; ${upcoming.map((u) => `${fmt(u.applicants)} so far for ${u.c}`).join(", ")}` : ""}`, cardMetric: applicantsM, metrics, charts };
     function cohortsOf(rows: Row[]) { return sortTerms(rows.map((r) => val(r, "Cohort")).filter((c) => /\d{4}/.test(c))); }
   }
+
 
   // ----- Program surveys (shown on the Internships page) -----
   // Each survey is summarized from its closed questions: before/after pairs, agree statements,

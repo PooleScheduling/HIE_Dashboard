@@ -98,12 +98,20 @@ export function countyOf(location: string): string {
 }
 
 function sbipApplicants(rows: Row[], meta: AdaptMeta): Row[] {
+  // Keeps only countable columns, with the sheet's own values: no names, contact details or essays.
   const r0 = rows[0];
   const ts = findCol(r0, /^timestamp$/i, /time ?stamp/i);
-  const email = findCol(r0, /nc state email/i, /^email address$/i, /email/i);
-  const major = findCol(r0, /current (poole )?major/i, /\bmajor\b/i);
-  const rural = findCol(r0, /rural community/i);
-  const status = findCol(r0, /^(final )?(status|decision|outcome|result)$/i);
+  const email = findCol(r0, /nc state email/i, /ncsu email/i, /^email address$/i, /email/i);
+  const major = findCol(r0, /^major$/i, /current (poole )?major/i, /\bmajor\b/i);
+  const rural = findCol(r0, /rural community/i, /^rural tie$/i);
+  const status = findCol(r0, /zoom interview status/i, /^status$/i, /^decision status$/i);
+  const rec = findCol(r0, /reviewer'?s recommendation/i, /recommendation for a zoom/i, /^r1 recommendation/i, /recommendation/i);
+  const decision = findCol(r0, /^final decision$/i, /^decision category$/i);
+  const prelim = findCol(r0, /preliminary decline/i);
+  const score = findCol(r0, /^total score$/i, /total score/i, /average application score/i, /application score/i);
+  const region = findCol(r0, /north carolina region/i, /regional preference/i, /^location$/i);
+  const heard = findCol(r0, /how did you hear/i);
+  const standing = findCol(r0, /anticipated status/i);
   const seen = new Set<string>();
   const out: Row[] = [];
   for (const r of rows) {
@@ -116,9 +124,16 @@ function sbipApplicants(rows: Row[], meta: AdaptMeta): Row[] {
       Cohort: cohort,
       "Student key": key,
       "Applied on": get(r, ts),
-      Status: get(r, status) || "Applied",
+      Status: get(r, status),
+      Recommendation: get(r, rec),
+      Decision: get(r, decision),
+      "Preliminary decline": get(r, prelim),
+      Score: /^\d+(\.\d+)?$/.test(get(r, score)) ? get(r, score) : "",
       Major: get(r, major),
+      "Class standing": get(r, standing),
       "Rural connection": get(r, rural),
+      Region: get(r, region).length <= 60 ? get(r, region) : "",
+      "Heard about": get(r, heard),
     });
   }
   return out;
