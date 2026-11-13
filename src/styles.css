@@ -763,3 +763,15 @@ h2 { font-size: clamp(22px, 2vw, 28px); }
 .highlights { gap: 12px; }
 .highlight { padding: 14px 16px; }
 @media (max-width: 860px) { .prog-layout { grid-template-columns: 1fr; } }
+
+/* Percentages and ratings as a readable list: number, full question, thin bar. */
+.statlist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 12px; }
+.statlist li { display: grid; grid-template-columns: minmax(84px, max-content) minmax(0, 1fr); column-gap: 14px; row-gap: 5px; align-items: center; }
+.sl-v { grid-row: span 2; font-size: 18px; font-weight: 700; color: var(--red-ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sl-q { font-size: 13px; line-height: 1.35; color: var(--ink); }
+.sl-track { display: block; height: 6px; background: var(--line); }
+.sl-track > span { display: block; height: 100%; background: var(--s1); transition: width .8s cubic-bezier(.2, .7, .2, 1); }
+@media print { .statlist li { break-inside: avoid; } .sl-track, .sl-track > span { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+/* One shared number column so every bar in a list starts at the same place. */
+.statlist { grid-template-columns: max-content minmax(0, 1fr); column-gap: 14px; }
+.statlist li { grid-column: 1 / -1; grid-template-columns: subgrid; }

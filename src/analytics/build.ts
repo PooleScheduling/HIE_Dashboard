@@ -315,14 +315,14 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       if (agree.length) {
         const all = agree.flatMap(([, xs]) => xs);
         metrics.push(metric(`${id}-agree`, "sbip_surveys", `${share(all, /^strongly agree/i)}%`, `of ${audience.toLowerCase()}' ratings were "Strongly agree"`));
-        const p = agree.map(([q, xs]) => [short(q), share(xs, /^strongly agree/i)] as [string, number]).sort((a, b) => b[1] - a[1]);
+        const p = agree.map(([q, xs]) => [short(q, 140), share(xs, /^strongly agree/i)] as [string, number]).sort((a, b) => b[1] - a[1]);
         charts.push(as("meter", hbar(`Rated "Strongly agree" (% of ${audience.toLowerCase()})`, p, p.map(([, n]) => `${n}%`))));
         agree.forEach(([q]) => used.add(q));
       }
       const yesNo = single.filter(([q, xs]) => !used.has(q) && share(xs, /^(yes|no|unsure|maybe|not sure)\b/i) >= 80);
       if (yesNo.length) {
-        const p = yesNo.map(([q, xs]) => [short(q), share(xs, /^yes/i)] as [string, number]);
-        charts.push(as("rings", hbar(`Answered "Yes" (% of ${audience.toLowerCase()})`, p)));
+        const p = yesNo.map(([q, xs]) => [short(q, 140), share(xs, /^yes/i)] as [string, number]);
+        charts.push(as("meter", hbar(`Answered "Yes" (% of ${audience.toLowerCase()})`, p, yesNo.map(([, xs]) => `${share(xs, /^yes/i)}% · ${xs.filter((a) => /^yes/i.test(a)).length} of ${xs.length}`))));
         const key = yesNo.find(([q]) => /full-?time/i.test(q)) ?? yesNo.find(([q]) => /another|again|future/i.test(q));
         if (key) metrics.push(metric(`${id}-yes`, "sbip_surveys", `${share(key[1], /^yes/i)}%`, /full-?time/i.test(key[0]) ? `would hire their intern full-time if a role opened` : `said yes: ${short(key[0], 80).toLowerCase()}`));
         yesNo.forEach(([q]) => used.add(q));
@@ -336,15 +336,15 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         else if (/hours?\b/i.test(q)) metrics.push(metric(`${id}-hrs`, "sbip_surveys", String(Math.round(avg(ns))), /week/i.test(q) ? "hours a week, on average" : short(q, 60).toLowerCase() + " (average)"));
         else {
           const scale = Math.max(...ns) <= 5 ? 5 : 10;
-          ratings.push([short(q), Math.round(avg(ns) * 10) / 10]);
-          ratingLabels.push(`${avg(ns).toFixed(1)} of ${scale}`);
+          // Stored as a share of the scale so 1-5 and 1-10 questions sit on one list; the label keeps the real score.
+          ratings.push([short(q, 140), Math.round((avg(ns) / scale) * 100)]);
+          ratingLabels.push(`${avg(ns).toFixed(1)} / ${scale}`);
           if (/overall/i.test(q)) metrics.push(metric(`${id}-overall`, "sbip_surveys", `${avg(ns).toFixed(1)}/${scale}`, `average ${audience === "Supervisors" ? "rating of their intern's overall performance" : "overall rating"}`));
         }
         used.add(q);
       }
       if (ratings.length) {
-        const scale = ratingLabels.some((l) => / of 10$/.test(l)) ? 10 : 5;
-        charts.push(as("rings", hbar(`Average ratings (out of ${scale})`, ratings, ratings.map(([, n]) => n.toFixed(1))), { max: scale }));
+        charts.push(as("meter", hbar("Average ratings", ratings, ratingLabels)));
       }
       for (const [q, xs] of single.filter(([q]) => !used.has(q)).slice(0, 3)) {
         const c = countBy(xs.map((a) => ({ a })), "a");

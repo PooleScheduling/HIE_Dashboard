@@ -255,7 +255,8 @@ function barLineOption(chart: ChartData, c: Colors, forExport: boolean, highligh
 }
 
 // Renders a chart off screen and returns a PNG data URL (used for downloads and Word files).
-export function chartToPng(chart: ChartData, width = 900, height = 420): string {
+export function chartToPng(input: ChartData, width = 900, height = 420): string {
+  const chart = input.kind === "rings" || input.kind === "meter" ? { ...input, kind: "bar" as const, orientation: "horizontal" as const } : input;
   const div = document.createElement("div");
   const inst = echarts.init(div, undefined, { renderer: "canvas", width, height });
   inst.setOption(chartOption(chart, exportColors, true));
@@ -300,6 +301,10 @@ export function Chart({ chart, height = 260, highlight, onSelect, bare }: ChartP
   useEffect(render, [chart, highlight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const name = slug(chart.title);
+  const shown = effectiveChart(chart);
+  // Percentages and ratings: a readable list (number, full question, a thin bar) instead of a canvas,
+  // so long questions wrap instead of overlapping. Downloads still draw it as bars.
+  const list = shown.kind === "meter" || shown.kind === "rings";
   return (
     <figure className="chart">
       {!bare && <div className="chart-head">
@@ -313,7 +318,23 @@ export function Chart({ chart, height = 260, highlight, onSelect, bare }: ChartP
           ]}
         />
       </div>}
-      <div ref={ref} style={{ width: "100%", height }} role="img" aria-label={chart.title} />
+      {list ? (
+        <ul className="statlist">
+          {shown.categories.map((cat, i) => {
+            const v = shown.series[0]?.values[i] ?? 0;
+            const max = shown.max ?? 100;
+            return (
+              <li key={cat}>
+                <b className="sl-v">{shown.series[0]?.labels?.[i] ?? `${v}%`}</b>
+                <span className="sl-q">{cat}</span>
+                <span className="sl-track" aria-hidden="true"><span style={{ width: `${Math.min(100, (v / max) * 100)}%` }} /></span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div ref={ref} style={{ width: "100%", height }} role="img" aria-label={chart.title} />
+      )}
       {chart.note && <p className="note">{chart.note}</p>}
     </figure>
   );
