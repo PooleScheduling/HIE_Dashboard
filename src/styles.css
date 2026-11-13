@@ -11,10 +11,10 @@
 
   /* Program colors for text and icons (NC State brand palette) */
   --a-global: #008473; --a-internships: #d14905; --a-practicum: #4156a1; --a-packways: #cc0000;
-  --a-career: #6f7d1c; --a-leadership: #990000; --a-hub: #427e93; --a-stories: #4156a1; --a-contribute: #990000;
+  --a-career: #6f7d1c; --a-leadership: #990000; --a-hub: #427e93; --a-wall: #333333; --a-stories: #4156a1; --a-contribute: #990000;
   /* Solid color blocks with white text. Same in both themes. */
   --b-red: #cc0000; --b-global: #008473; --b-internships: #d14905; --b-practicum: #4156a1; --b-packways: #cc0000;
-  --b-career: #6f7d1c; --b-leadership: #990000; --b-hub: #427e93; --b-stories: #4156a1; --b-contribute: #990000;
+  --b-career: #6f7d1c; --b-leadership: #990000; --b-hub: #427e93; --b-wall: #333333; --b-stories: #4156a1; --b-contribute: #990000;
 
   /* Chart series (checked for color-blind separation) */
   --s1: #cc0000; --s2: #4156a1; --s1-soft: #f1b9b9;
@@ -38,7 +38,7 @@
   --red: #e8484a; --red-ink: #ff7070; --red-deep: #990000; --red-soft: #3a1d1e;
   --utility: #000000; --foot: #1c1e21; --foot-legal: #000000;
   --a-global: #2fb5a2; --a-internships: #f07a3c; --a-practicum: #8b9de6; --a-packways: #ff6b6b;
-  --a-career: #b0be55; --a-leadership: #ff8f8f; --a-hub: #74b6cc; --a-stories: #8b9de6; --a-contribute: #ff7a7a;
+  --a-career: #b0be55; --a-leadership: #ff8f8f; --a-hub: #74b6cc; --a-wall: #d0d0d0; --a-stories: #8b9de6; --a-contribute: #ff7a7a;
   --s1: #e8484a; --s2: #6f86d6; --s1-soft: #6b2c2e;
   --g3: #ff8a8a; --g2: #e8484a; --g1: #8f2a2c; --g0: #33363b;
   --w-bg: #111110; --w-surface: #1a1a19; --w-border: #2e2e2c; --w-text: #f0efec; --w-text-2: #c3c2b7; --w-muted: #8f8e88; --w-grid: #2a2a28;
@@ -653,3 +653,75 @@ label.btn { cursor: pointer; }
   .dots-art circle { animation: none; }
   .report .card:hover { transform: none; }
 }
+
+/* ---------- Denser layout: more on the first screen ---------- */
+.utility { height: 36px; }
+.site-title { padding: 12px 16px 4px; }
+.title { font-size: clamp(24px, 2.6vw, 32px); }
+.unit { font-size: 13px; }
+nav button { padding: 11px 14px 9px; font-size: 16px; }
+.contrib { font-size: 16px; padding: 10px 0; }
+main { padding-block: 18px 64px; }
+.view { gap: 32px; }
+h2 { font-size: clamp(22px, 2vw, 28px); }
+.labeled-head { margin-bottom: 14px; }
+.toolbar { margin-top: -16px; padding-bottom: 10px; }
+.split.no-photo .split-body { padding-block: clamp(24px, 3vw, 40px); }
+
+.report { gap: 24px; }
+.report .split.compact .split-body { padding: 22px 28px; gap: 8px; }
+.report .split.compact .split-body h1 { font-size: clamp(22px, 2.4vw, 30px); }
+.report .split-lead { font-size: 15px; }
+.report .btn-outline { padding: 8px 14px; font-size: 14px; }
+
+.overview { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 3.2fr); gap: 20px; align-items: stretch; }
+.ov-numbers { display: grid; align-content: start; gap: 10px; padding: 18px 20px; background: var(--gray-bg); }
+.ov-numbers .label { margin: 0; }
+.facts.tight { grid-template-columns: 1fr; gap: 14px; }
+.facts.tight .fact-ic { display: none; }
+.facts.tight .fact-n { font-size: clamp(34px, 3.2vw, 44px); margin-top: 0; }
+.facts.tight .fact-l { font-size: 14px; max-width: none; }
+.report .facts.tight .fact-n::after { height: 8px; margin-top: 4px; width: min(60%, 150px); }
+
+.report .dots-panel { padding: 18px 20px; gap: 24px; border-top-width: 3px; grid-template-columns: minmax(0, 3fr) minmax(200px, 1.4fr); }
+.report .dots-main { gap: 10px; }
+.report .dots-main h2 { font-size: 16px; }
+.report .dots-big { font-size: clamp(30px, 3vw, 42px); margin-bottom: 2px; }
+.report .dots-legend button { font-size: 13px; }
+.report .goal-side .area-bars { gap: 8px; }
+.report .goal-side .ab-label { font-size: 13px; }
+.report .goal-side .ab-track { height: 8px; }
+.report .goal-side .src, .report .dots-main .src { font-size: 12px; }
+
+.report .compact-head h2 { font-size: 20px; }
+.report .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.report .cards > * { grid-column: auto !important; }
+.report .card { padding: 18px; gap: 6px; }
+.report .card-ic { display: none; }
+.report .card-h { font-size: 15px; }
+.report .card-n { font-size: clamp(30px, 2.8vw, 40px); }
+.report .card-t { font-size: 13px; line-height: 1.35; }
+.report .card .mini svg { height: 30px; }
+.report .card .mini-cap { font-size: 11px; }
+.report .card .cta { font-size: 13px; }
+.report .card-art .icon { width: 110px; height: 110px; }
+.report .callout-block { padding: clamp(24px, 4vw, 44px) clamp(20px, 5vw, 72px); gap: 14px; }
+.report .callout-block blockquote { font-size: clamp(17px, 1.8vw, 22px); min-height: 0; }
+
+@media (max-width: 1100px) {
+  .overview { grid-template-columns: 1fr; }
+  .facts.tight { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .report .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .facts.tight { grid-template-columns: 1fr; }
+  .report .cards { grid-template-columns: 1fr; }
+  .report .dots-panel { grid-template-columns: 1fr; }
+}
+/* Front page goal banner: text on the left, buttons on the right, one short band. */
+.report .split.compact .split-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 28px; row-gap: 6px; align-items: center; padding: 18px 28px; }
+.report .split-body > .split-eyebrow, .report .split-body > h1, .report .split-body > .split-lead { grid-column: 1; }
+.report .split-body > .split-cta { grid-column: 2; grid-row: 2 / span 2; margin: 0; flex-direction: column; gap: 8px; }
+.report .split-cta .btn-outline { padding: 7px 12px; font-size: 14px; justify-content: space-between; }
+.report .split-eyebrow { font-size: 13px; }
+@media (max-width: 760px) { .report .split.compact .split-body { grid-template-columns: 1fr; } .report .split-body > .split-cta { grid-column: 1; grid-row: auto; flex-direction: row; } }

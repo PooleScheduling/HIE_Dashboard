@@ -112,6 +112,8 @@ Everything runs from one Google Sheet, the **HIE Data Hub**, kept in the HIE_Das
 
 **Program sheets read as they are:** a `Live sheet` can be a program's own form-response or tracker sheet. `src/analytics/adapters.ts` finds the columns it needs by meaning (e.g. any column mentioning "NC State email" or "major"), so a reworded form still works. It keeps only those fields, turns each email into an anonymous student key (the same student matches across programs), and drops everything else (names, emails, phones, GPAs, links) before the analysis runs. Only totals reach the page. The tab is the one in **Source tab**, else the one the link points at (`#gid=`), else the first tab. Put the cohort or cycle in **Year** (e.g. `Summer 2027`); if blank, it's worked out from the timestamp. Charts for outcomes (interviewed, placed, accepted, hosting) appear only once the sheet records them. Adapters exist for SBIP applicants, the SBIP employer tracker and the Sales Excellence Certificate.
 
+**Real data only, no links on the page:** datasets marked `realOnly` in `datasets.ts` (the Hub kiosk, the HIE wall, SBIP applicants, employers and surveys, practicum, the Sales Certificate and stories) never show sample rows once deployed; with no source they show "No data reported". Source links are never sent to the page, because the source sheets hold personal information. Editors get one button on the Contribute page that opens the Data Hub, where the Sources tab lists every link (the sheets' own sharing still applies).
+
 Older setups used `KIOSK_SHEET_ID` and `TOUCHSCREEN_URL` script properties; they still work if the Sources tab has no row for those datasets.
 
 ### HIE Wall Usage (touchscreen wall)

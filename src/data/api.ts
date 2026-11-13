@@ -47,9 +47,10 @@ export async function importSource(sourceId: string): Promise<ImportResult> {
   return { added: 0, archived: 0, year: "All years" };
 }
 
-// Can this viewer import data? (Locally, always.)
-export async function getAccess(): Promise<{ canEdit: boolean }> {
-  if (isAppsScript()) return JSON.parse(await callServer<string>("getAccess")) as { canEdit: boolean };
+// Can this viewer import data? Editors also get the Data Hub link (the one place with source links).
+export type Access = { canEdit: boolean; hubUrl?: string };
+export async function getAccess(): Promise<Access> {
+  if (isAppsScript()) return JSON.parse(await callServer<string>("getAccess")) as Access;
   return { canEdit: true };
 }
 

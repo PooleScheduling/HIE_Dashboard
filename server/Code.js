@@ -77,7 +77,6 @@ function getReport() {
 
   /** @type {Record<string, Record<string, string>[]>} */ const rows = {};
   /** @type {Record<string, string>} */ const kinds = {};
-  /** @type {Record<string, string>} */ const links = {};
   for (const d of HIE.datasets) {
     /** @type {Record<string, string>[]} */ let r = [];
     for (const s of all.filter((x) => x.Dataset === d.id && /^live/i.test(x.Type))) {
@@ -87,22 +86,20 @@ function getReport() {
         ? readTouchscreen_(s.Link, props.getProperty("TOUCHSCREEN_KEY") || "")
         : HIE.adaptRows(d.id, readLiveSheet_(s.Link, s["Source tab"] || (d.id === "hub_checkins" ? d.sheetTab : "")), { year: s.Year || "" });
       if (got.length) { r = r.concat(got); kinds[d.id] = "live"; }
-      if (s.Link && !links[d.id]) links[d.id] = linkUrl_(s.Link, s.Type);
     }
     if (book) {
       const copied = d.id === "hub_checkins" || d.id === "touchscreen" ? [] : readTab_(book.getSheetByName(d.sheetTab));
       if (copied.length) { r = r.concat(copied); kinds[d.id] = kinds[d.id] || "upload"; }
     }
-    if (!links[d.id]) {
-      const s = all.find((x) => x.Dataset === d.id && x.Link);
-      if (s) links[d.id] = linkUrl_(s.Link, s.Type);
-    }
-    rows[d.id] = r.length ? r : useSamples ? HIE.sampleRows[d.id] || [] : [];
+    // Programs that have given us their data (realOnly) never fall back to sample rows.
+    rows[d.id] = r.length ? r : useSamples && !d.realOnly ? HIE.sampleRows[d.id] || [] : [];
   }
 
   const today = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
   /** @type {any} */
-  const report = HIE.buildReport(rows, { asOf: today, kinds, links });
+  // Source links are not sent to the page: the sheets hold personal data, so the one place to
+  // find them is the Sources tab of the Data Hub, which editors can open (see getAccess).
+  const report = HIE.buildReport(rows, { asOf: today, kinds });
   if (sources.length) report.sources = sourcesForReport_(sources, kinds);
   if (book) {
     overlayMetrics_(report, book.getSheetByName("Metrics"));
@@ -141,20 +138,11 @@ function sourcesForReport_(/** @type {any[]} */ sources, /** @type {Record<strin
       kind: live ? (kinds[s.Dataset] === "live" ? "live" : "waiting") : s["Last imported"] ? "upload" : "waiting",
       howItGetsIn: s.Type,
       type: s.Type,
-      link: s.Link ? linkUrl_(s.Link, s.Type) : undefined,
       year: s.Year || undefined,
       lastUpdated: s["Last imported"] ? String(s["Last imported"]).slice(0, 10) : undefined,
       rows: s.Rows ? Number(s.Rows) : undefined,
     };
   });
-}
-
-/** A link a person can open. The wall's feed needs a key, so it points at its stats page. */
-function linkUrl_(/** @type {string} */ link, /** @type {string} */ type) {
-  const l = String(link).trim();
-  if (/feed/i.test(type)) return l.replace(/\/api\/hie-stats.*$/, "/stats.html");
-  if (/^https?:/i.test(l)) return l;
-  return "https://docs.google.com/spreadsheets/d/" + l + "/edit";
 }
 
 /** Sheet ID from a link or a bare ID. */
@@ -191,9 +179,14 @@ function canEdit_() {
   return !!me && (me === owner || list.includes(me));
 }
 
-/** Called by the front end: can this viewer import data and change photos? */
+/**
+ * Called by the front end: can this viewer import data and change photos? Editors also get the
+ * link to the Data Hub, the one place that lists every source link (sharing still applies).
+ */
 function getAccess() {
-  return JSON.stringify({ canEdit: canEdit_() });
+  const canEdit = canEdit_();
+  const id = PropertiesService.getScriptProperties().getProperty("DATA_SHEET_ID");
+  return JSON.stringify({ canEdit, hubUrl: canEdit && id ? "https://docs.google.com/spreadsheets/d/" + id + "/edit" : undefined });
 }
 
 /**

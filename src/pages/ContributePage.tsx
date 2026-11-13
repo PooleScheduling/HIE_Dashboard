@@ -29,6 +29,7 @@ export function ContributePage({ data }: { data: ReportData }) {
   const takesFiles = (s: DataSource) => !/^live/i.test(s.type ?? s.howItGetsIn);
   const uploadSources = data.sources.filter(takesFiles);
   const [canEdit, setCanEdit] = useState(false);
+  const [hubUrl, setHubUrl] = useState<string | undefined>();
   const [filter, setFilter] = useState<"all" | "confirmed" | "placeholder">("all");
   const [open, setOpen] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState(uploadSources[0]?.id ?? "");
@@ -44,7 +45,7 @@ export function ContributePage({ data }: { data: ReportData }) {
   const areaName = (id: string) => data.sections.find((s) => s.id === id)?.kicker ?? (id === "hub" ? "The Hub" : id === "wall" ? "HIE Wall" : id === "stories" ? "Stories" : "Settings");
   const list = data.templates.filter((t) => filter === "all" || t.status === filter);
 
-  useEffect(() => { getAccess().then((a) => setCanEdit(a.canEdit)).catch(() => setCanEdit(false)); }, []);
+  useEffect(() => { getAccess().then((a) => { setCanEdit(a.canEdit); setHubUrl(a.hubUrl); }).catch(() => setCanEdit(false)); }, []);
 
   async function readFile(file: File) {
     if (!template) return;
@@ -111,15 +112,20 @@ export function ContributePage({ data }: { data: ReportData }) {
 
       <LabeledSection label="Sources" title="Where the data comes from">
         <p className="src" style={{ marginBottom: 12 }}>
-          The list lives in the Sources tab of the HIE Data Hub sheet. Sources are only ever read: imports copy the rows into the Data Hub, and a new import for the same source and year replaces the old rows after moving them to the Archive tab. Links open the original for anyone with access to it.
+          The list lives in the Sources tab of the HIE Data Hub sheet. Sources are only ever read, and only totals reach this dashboard. The source sheets hold personal information, so their links aren't shown here: program team editors can find them in the Data Hub.
         </p>
+        {hubUrl && (
+          <p style={{ marginBottom: 12 }}>
+            <a className="btn-ghost" href={hubUrl} target="_blank" rel="noopener noreferrer">Open the Sources list (editors only) ↗</a>
+          </p>
+        )}
         <div className="tscroll">
           <table>
             <thead><tr><th>Source</th><th>Feeds</th><th>Owner</th><th>How it gets in</th><th>Year</th><th>Status</th><th>Last updated</th>{canEdit && <th />}</tr></thead>
             <tbody>
               {data.sources.map((s) => (
                 <tr key={s.id ?? s.name}>
-                  <td>{s.link ? <a href={s.link} target="_blank" rel="noopener noreferrer"><b>{s.name}</b> ↗</a> : <b>{s.name}</b>}</td>
+                  <td><b>{s.name}</b></td>
                   <td>{s.feeds}</td>
                   <td>{s.owner}</td>
                   <td>{s.type ?? s.howItGetsIn}</td>
@@ -128,7 +134,7 @@ export function ContributePage({ data }: { data: ReportData }) {
                   <td>{s.lastUpdated ? formatDate(s.lastUpdated) : "—"}{s.rows ? ` · ${s.rows.toLocaleString("en-US")} rows` : ""}</td>
                   {canEdit && (
                     <td>
-                      {/google sheet/i.test(s.type ?? "") && s.link && (
+                      {/google sheet/i.test(s.type ?? "") && s.id && (
                         <button className="btn-ghost" disabled={!!busy} onClick={() => void pull(s)}>{busy === s.id ? "Importing…" : "Import"}</button>
                       )}
                       {/file upload/i.test(s.type ?? "") && s.id && (

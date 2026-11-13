@@ -666,7 +666,11 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
   function coverage(): Coverage {
     const areaStudents: [string, string, string[]][] = [
       ["global", "Global programs", R("global").map((r) => val(r, "Student key"))],
-      ["internships", "Small Business Internship Program", R("sbip_applicants").filter((r) => /placed/i.test(val(r, "Status"))).map((r) => val(r, "Student key"))],
+      // Interns: applicants marked placed, plus students who answered a program survey with their email.
+      ["internships", "Small Business Internship Program", [
+        ...R("sbip_applicants").filter((r) => /placed/i.test(val(r, "Status"))).map((r) => val(r, "Student key")),
+        ...R("sbip_surveys").filter((r) => val(r, "Audience") === "Students").map((r) => val(r, "Student key")),
+      ]],
       ["practicum", "Practicum and certificates", [
         ...R("practicum").filter((r) => /enrol|complet/i.test(val(r, "Status"))).map((r) => val(r, "Student key")),
         ...R("sales_cert").filter((r) => yes(val(r, "Accepted"))).map((r) => val(r, "Student key")),
@@ -681,7 +685,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       return { id, label, n: u.length };
     });
     const counts = [...perStudent.values()];
-    const sources = ["global", "sbip_applicants", "practicum", "sales_cert", "leadership", "career"];
+    const sources = ["global", "sbip_applicants", "sbip_surveys", "practicum", "sales_cert", "leadership", "career"];
     const kind: SourceKind = sources.some((s) => kindOf(s) === "sample") ? "sample" : sources.some((s) => kindOf(s) === "live") ? "live" : "upload";
     return {
       students: perStudent.size,

@@ -16,7 +16,7 @@ export const statusText = { live: "Live", upload: "Source file", report: "Annual
 
 // Each program area gets one NC State brand color. The colors are tokens in styles.css:
 // --a-<id> for text and icons (adjusted for dark mode), --b-<id> for solid color blocks.
-const accentIds = ["global", "internships", "practicum", "leadership", "packways", "career", "hub", "stories", "contribute"];
+const accentIds = ["global", "internships", "practicum", "leadership", "packways", "career", "hub", "wall", "stories", "contribute"];
 const programToSection: Record<string, string> = {
   global: "global",
   internships: "internships",

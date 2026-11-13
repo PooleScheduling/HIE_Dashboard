@@ -18,11 +18,14 @@ export type Dataset = {
   sheetTab: string; // tab name in the HIE Data Hub workbook
   columns: Column[];
   powers: string[]; // analysis this dataset feeds
+  // Real data only: once deployed, never stand in sample rows (the area shows "No data reported").
+  realOnly?: boolean;
 };
 
 export const datasets: Dataset[] = [
   {
     id: "hub_checkins",
+    realOnly: true,
     name: "Hub kiosk check-ins",
     area: "hub",
     owner: "Student Leadership",
@@ -76,6 +79,7 @@ export const datasets: Dataset[] = [
   },
   {
     id: "sbip_applicants",
+    realOnly: true,
     name: "Small Business Internship applicants",
     area: "internships",
     owner: "Internship program team",
@@ -95,6 +99,7 @@ export const datasets: Dataset[] = [
   },
   {
     id: "sbip_employers",
+    realOnly: true,
     name: "Small Business Internship employers",
     area: "internships",
     owner: "Internship program team",
@@ -114,6 +119,7 @@ export const datasets: Dataset[] = [
   },
   {
     id: "practicum",
+    realOnly: true,
     name: "Practicum applications",
     area: "practicum",
     owner: "Practicum team",
@@ -133,6 +139,7 @@ export const datasets: Dataset[] = [
   },
   {
     id: "sbip_surveys",
+    realOnly: true,
     name: "Small Business Internship surveys",
     area: "internships",
     owner: "Internship program team",
@@ -153,6 +160,7 @@ export const datasets: Dataset[] = [
   },
   {
     id: "sales_cert",
+    realOnly: true,
     name: "Sales Excellence Certificate",
     area: "practicum",
     owner: "Internship program team",
@@ -228,6 +236,7 @@ export const datasets: Dataset[] = [
   },
   {
     id: "touchscreen",
+    realOnly: true,
     name: "HIE wall taps and QR scans",
     area: "wall",
     owner: "HIE wall",
@@ -247,6 +256,7 @@ export const datasets: Dataset[] = [
   },
   {
     id: "stories",
+    realOnly: true,
     name: "Stories",
     area: "stories",
     owner: "All program teams",

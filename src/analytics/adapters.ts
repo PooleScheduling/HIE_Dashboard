@@ -195,10 +195,13 @@ function survey(rows: Row[], meta: AdaptMeta): Row[] {
     const avgLen = vals.reduce((a, v) => a + v.length, 0) / vals.length;
     return numeric || (distinct <= 8 && avgLen <= 40);
   });
+  // Student surveys that collect an email let us count those students as program participants
+  // (as an anonymous key, like everywhere else). Supervisor emails are never used.
+  const email = audience === "Students" ? findCol(rows[0], /nc state email/i, /^email address$/i) : undefined;
   const out: Row[] = [];
   rows.forEach((r, i) => {
     // One marker row per response, so a survey with only open questions still counts responses.
-    out.push({ Survey: meta.source || "Survey", Cohort: meta.year || "", Audience: audience, Respondent: String(i + 1), Question: "", Answer: "" });
+    out.push({ Survey: meta.source || "Survey", Cohort: meta.year || "", Audience: audience, Respondent: String(i + 1), Question: "", Answer: "", "Student key": studentKey(get(r, email)) });
     for (const h of keep) {
       const a = get(r, h);
       if (a) out.push({ Survey: meta.source || "Survey", Cohort: meta.year || "", Audience: audience, Respondent: String(i + 1), Question: h.trim(), Answer: a.slice(0, 60) });

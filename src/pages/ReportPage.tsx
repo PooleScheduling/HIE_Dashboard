@@ -13,10 +13,21 @@ export function ReportPage({ data, go }: { data: ReportData; go: Go }) {
   const keepers = Array.from(new Map(data.sections.map((s) => [s.owner, s])).values());
   const hubMetric = data.hub.metrics[0];
   const withData = data.sections.filter((s) => s.cardMetric);
+  // HIE wall: total visits and visits per week, from the per-day totals.
+  const wallDays = data.wall?.days ?? [];
+  const wallVisits = wallDays.reduce((a, d) => a + d.visits[0] + d.visits[1] + d.visits[2], 0);
+  const wallWeeks = new Map<string, number>();
+  for (const d of wallDays) {
+    const t = new Date(d.date + "T12:00:00");
+    t.setDate(t.getDate() - ((t.getDay() + 6) % 7));
+    const k = t.toISOString().slice(0, 10);
+    wallWeeks.set(k, (wallWeeks.get(k) ?? 0) + d.visits[0] + d.visits[1] + d.visits[2]);
+  }
 
   return (
     <div className="view report">
       <SplitHeader
+        compact
         eyebrow="Our goal"
         title={data.goal}
         lead={data.intro}
@@ -48,17 +59,20 @@ export function ReportPage({ data, go }: { data: ReportData; go: Go }) {
         />
       </div>
 
-      <LabeledSection label="By the numbers">
-        <div className="facts">
-          {data.headline.map((m, i) => (
-            <Fact key={m.id} m={m} accent={headlineAccent[i] ?? "packways"} delay={i * 90} />
-          ))}
+      {/* First screen: headline numbers next to the student picture, then every program area. */}
+      <section className="overview" aria-label="By the numbers">
+        <div className="ov-numbers">
+          <p className="label">By the numbers</p>
+          <div className="facts tight">
+            {data.headline.map((m, i) => (
+              <Fact key={m.id} m={m} accent={headlineAccent[i] ?? "packways"} delay={i * 90} />
+            ))}
+          </div>
         </div>
-      </LabeledSection>
+        <StudentDots c={data.coverage} />
+      </section>
 
-      <StudentDots c={data.coverage} />
-
-      <LabeledSection label="Program areas" title="Every way Poole students get there">
+      <LabeledSection label="Program areas" title="Every way Poole students get there" className="compact-head">
         <div className="cards">
           {withData.map((s, i) => (
             <Reveal key={s.id} delay={(i % 3) * 70}>
@@ -83,6 +97,18 @@ export function ReportPage({ data, go }: { data: ReportData; go: Go }) {
                 <span className="card-t">{hubMetric.label}</span>
                 <MiniBars chart={data.hub.weekly} />
                 <span className="cta">Explore the Hub <Icon name="arrow" size={14} /></span>
+              </button>
+            </Reveal>
+          )}
+          {wallVisits > 0 && (
+            <Reveal delay={((withData.length + 1) % 3) * 70}>
+              <button className="card" style={accentStyle("wall")} onClick={() => go("wall")}>
+                <span className="card-art" aria-hidden="true"><Icon name="users" size={150} /></span>
+                <span className="card-h">HIE Wall in Nelson Hall</span>
+                <span className="card-n"><CountUp value={wallVisits.toLocaleString("en-US")} /></span>
+                <span className="card-t">visits to the touchscreen wall since {new Date(wallDays[0].date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                <MiniBars chart={{ title: "Visits per week", categories: [...wallWeeks.keys()], series: [{ name: "Visits", values: [...wallWeeks.values()] }] }} />
+                <span className="cta">Explore the HIE Wall <Icon name="arrow" size={14} /></span>
               </button>
             </Reveal>
           )}
@@ -170,7 +196,7 @@ function StudentDots({ c }: { c: Coverage }) {
     <Reveal className="panel dots-panel">
       <div className="dots-main">
         <p className="label">Progress toward the goal</p>
-        <h2>{c.students > 0 && <span className="dots-big">About 1 in {Math.max(1, Math.round(c.enrollment / c.students))}</span>} Poole undergraduates {c.students >= c.enrollment ? "have" : "has"} a high-impact experience on record.</h2>
+        <h2><span className="dots-big">{c.students > 0 ? `About 1 in ${Math.max(1, Math.round(c.enrollment / c.students))}` : "None yet"}</span> Poole undergraduates {c.students >= c.enrollment ? "have" : "has"} a high-impact experience on record</h2>
         <svg className={`dots-art${focus !== null ? " focusing" : ""}`} viewBox={`0 0 ${cols * 10} ${rows * 10}`} role="img"
           aria-label={groups.map((g) => `${g.label}: ${fmtN(g.n)}`).join(", ")}>
           {groups.map((g, gi) => (
