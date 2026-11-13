@@ -20,6 +20,9 @@ const accentIds = ["global", "internships", "practicum", "leadership", "packways
 const programToSection: Record<string, string> = {
   global: "global",
   internships: "internships",
+  "small business internship program": "internships",
+  "business hire": "internships",
+  "sales excellence certificate": "practicum",
   courses: "practicum",
   practicum: "practicum",
   packways: "packways",

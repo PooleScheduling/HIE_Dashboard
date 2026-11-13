@@ -36,6 +36,17 @@ export interface Chart {
   note?: string;
 }
 
+// One survey, summarized: closed questions only, never individual answers.
+export interface SurveySummary {
+  id: string;
+  title: string;
+  cohort: string;
+  audience: string; // "Students" or "Supervisors"
+  responses: number;
+  metrics: Metric[];
+  charts: Chart[];
+}
+
 export interface Section {
   id: string;
   title: string;
@@ -46,6 +57,7 @@ export interface Section {
   cardMetric?: Metric; // the one number on the front-page card
   metrics: Metric[];
   charts: Chart[];
+  surveys?: SurveySummary[];
   note?: string;
 }
 

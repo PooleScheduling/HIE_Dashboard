@@ -1,4 +1,4 @@
-import type { Chart, Coverage, DataSource, Metric, Provenance, ReportData, Section, SourceKind, Story, UploadTemplate, WallDay, WallUsage } from "../data/types";
+import type { Chart, Coverage, DataSource, Metric, Provenance, ReportData, Section, SourceKind, Story, SurveySummary, UploadTemplate, WallDay, WallUsage } from "../data/types";
 import { datasets, type Row, type Rows } from "./datasets";
 import { people, teams } from "./teams";
 import { COUNTY_TYPES, WALL_SCREENS, countyType, gicsSector, wallLabelHasName } from "./reference";
@@ -260,6 +260,113 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     if (roles.length) charts.push(hbar("Placed interns by functional area, all cohorts", roles));
     return { ...base, summary: `applied for ${latest.c} internships with small and rural businesses`, cardMetric: applicantsM, metrics, charts };
     function cohortsOf(rows: Row[]) { return sortTerms(rows.map((r) => val(r, "Cohort")).filter((c) => /\d{4}/.test(c))); }
+  }
+
+  // ----- Program surveys (shown on the Internships page) -----
+  // Each survey is summarized from its closed questions: before/after pairs, agree statements,
+  // yes/no questions, ratings, rankings and hours. Open-ended answers never reach this point.
+  function surveySummaries(): SurveySummary[] {
+    const S = R("sbip_surveys");
+    const num = (a: string) => { const m = /^(\d+(?:\.\d+)?)/.exec(a.trim()); return m ? Number(m[1]) : NaN; };
+    const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+    const short = (q: string, max = 64) => {
+      let s = q.split("\n")[0].replace(/^the intern\s+/i, "").replace(/\s*throughout the internship\.?$/i, "").replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").replace(/[?.:]$/, "").trim();
+      s = s.charAt(0).toUpperCase() + s.slice(1);
+      return s.length > max ? s.slice(0, max - 1).replace(/\s+\S*$/, "") + "…" : s;
+    };
+    // Surveys are told apart by name and cohort (each summer's supervisor survey is its own).
+    const keyOf = (r: Row) => `${val(r, "Survey")}\u0000${val(r, "Cohort")}`;
+    const names = uniq(S.map(keyOf));
+    const out = names.map((k, si): SurveySummary => {
+      const rows = S.filter((r) => keyOf(r) === k);
+      const name = val(rows[0], "Survey");
+      const cohort = val(rows[0], "Cohort");
+      const audience = val(rows[0], "Audience") || "Students";
+      const responses = uniq(rows.map((r) => val(r, "Respondent"))).length;
+      const id = `sv${si}`;
+      const byQ = new Map<string, string[]>();
+      for (const r of rows) {
+        const q = val(r, "Question"), a = val(r, "Answer");
+        if (q && a) byQ.set(q, [...(byQ.get(q) ?? []), a]);
+      }
+      const metrics: Metric[] = [metric(`${id}-n`, "sbip_surveys", fmt(responses), `${audience.toLowerCase()} responded${cohort ? `, ${cohort}` : ""}`)];
+      const charts: Chart[] = [];
+      const used = new Set<string>();
+
+      // Matrix questions: "Skill [At the beginning]" / "Skill [Now]", or "Rank these [Item]".
+      const groups = new Map<string, { label: string; q: string }[]>();
+      for (const q of byQ.keys()) {
+        const m = /^([\s\S]*?)\s*\[([^\]]+)\]\s*$/.exec(q);
+        if (m) groups.set(m[1], [...(groups.get(m[1]) ?? []), { label: m[2], q }]);
+      }
+      const isStart = (l: string) => /begin|start|before|prior|\bpre\b/i.test(l);
+      const isNow = (l: string) => /\bnow\b|\bend\b|after|\bpost\b/i.test(l);
+      const pairs = [...groups].filter(([, ls]) => ls.length === 2 && ls.some((x) => isStart(x.label)) && ls.some((x) => isNow(x.label)));
+      if (pairs.length) {
+        const cats: string[] = [], before: number[] = [], after: number[] = [];
+        let top = 0;
+        for (const [base, ls] of pairs) {
+          const b = byQ.get(ls.find((x) => isStart(x.label))!.q)!.map(num).filter((n) => !isNaN(n));
+          const a = byQ.get(ls.find((x) => isNow(x.label))!.q)!.map(num).filter((n) => !isNaN(n));
+          cats.push(short(base, 40)); before.push(Math.round(avg(b) * 10) / 10); after.push(Math.round(avg(a) * 10) / 10);
+          top = Math.max(top, ...a, ...b);
+          ls.forEach((x) => used.add(x.q));
+        }
+        const gain = avg(after.map((v, i) => v - before[i]));
+        metrics.push(metric(`${id}-gain`, "sbip_surveys", `${gain >= 0 ? "+" : ""}${gain.toFixed(1)}`, `average gain in self-rated skills, on a ${top}-point scale`));
+        charts.push({ ...twoSeries(`Self-rated skills: at the start vs now (average, out of ${top})`, cats, ["At the start", before], ["Now", after], after.map((v) => v.toFixed(1))), orientation: "horizontal" });
+      }
+      for (const [base, ls] of groups) {
+        if (ls.length < 2 || ls.every((x) => used.has(x.q))) continue;
+        const vals = ls.map((x) => ({ label: short(x.label, 40), xs: byQ.get(x.q)!.map(num).filter((n) => !isNaN(n)) }));
+        if (vals.every((v) => !v.xs.length)) continue;
+        const ranked = ls.some((x) => byQ.get(x.q)!.some((a) => /priority|rank|\d(st|nd|rd|th)\b/i.test(a)));
+        const pairsList = vals.map((v) => [v.label, Math.round(avg(v.xs) * 10) / 10] as [string, number]).sort((a, b) => (ranked ? a[1] - b[1] : b[1] - a[1]));
+        charts.push(hbar(ranked ? `${short(base, 48)} (average rank, 1 = top)` : `${short(base, 48)} (average)`, pairsList, pairsList.map(([, n]) => n.toFixed(1))));
+        ls.forEach((x) => used.add(x.q));
+      }
+
+      const single = [...byQ].filter(([q]) => !used.has(q));
+      const share = (xs: string[], re: RegExp) => pct(xs.filter((a) => re.test(a)).length, xs.length);
+      const agree = single.filter(([, xs]) => share(xs, /agree/i) >= 60);
+      if (agree.length) {
+        const all = agree.flatMap(([, xs]) => xs);
+        metrics.push(metric(`${id}-agree`, "sbip_surveys", `${share(all, /^strongly agree/i)}%`, `of ${audience.toLowerCase()}' ratings were "Strongly agree"`));
+        const p = agree.map(([q, xs]) => [short(q), share(xs, /^strongly agree/i)] as [string, number]).sort((a, b) => b[1] - a[1]);
+        charts.push(hbar(`Rated "Strongly agree" (% of ${audience.toLowerCase()})`, p, p.map(([, n]) => `${n}%`)));
+        agree.forEach(([q]) => used.add(q));
+      }
+      const yesNo = single.filter(([q, xs]) => !used.has(q) && share(xs, /^(yes|no|unsure|maybe|not sure)\b/i) >= 80);
+      if (yesNo.length) {
+        const p = yesNo.map(([q, xs]) => [short(q), share(xs, /^yes/i)] as [string, number]);
+        charts.push(hbar(`Answered "Yes" (% of ${audience.toLowerCase()})`, p, yesNo.map(([, xs]) => `${xs.filter((a) => /^yes/i.test(a)).length} of ${xs.length}`)));
+        const key = yesNo.find(([q]) => /full-?time/i.test(q)) ?? yesNo.find(([q]) => /another|again|future/i.test(q));
+        if (key) metrics.push(metric(`${id}-yes`, "sbip_surveys", `${share(key[1], /^yes/i)}%`, /full-?time/i.test(key[0]) ? `would hire their intern full-time if a role opened` : `said yes: ${short(key[0], 80).toLowerCase()}`));
+        yesNo.forEach(([q]) => used.add(q));
+      }
+      const numeric = single.filter(([q, xs]) => !used.has(q) && xs.filter((a) => !isNaN(num(a))).length >= xs.length * 0.8);
+      const ratings: [string, number][] = [];
+      const ratingLabels: string[] = [];
+      for (const [q, xs] of numeric) {
+        const ns = xs.map(num).filter((n) => !isNaN(n));
+        if (/hours?\b/i.test(q) && /total/i.test(q)) metrics.push(metric(`${id}-hours`, "sbip_surveys", fmt(ns.reduce((a, b) => a + b, 0)), `hours of community service in total`));
+        else if (/hours?\b/i.test(q)) metrics.push(metric(`${id}-hrs`, "sbip_surveys", String(Math.round(avg(ns))), /week/i.test(q) ? "hours a week, on average" : short(q, 60).toLowerCase() + " (average)"));
+        else {
+          const scale = Math.max(...ns) <= 5 ? 5 : 10;
+          ratings.push([short(q), Math.round(avg(ns) * 10) / 10]);
+          ratingLabels.push(`${avg(ns).toFixed(1)} of ${scale}`);
+          if (/overall/i.test(q)) metrics.push(metric(`${id}-overall`, "sbip_surveys", `${avg(ns).toFixed(1)}/${scale}`, `average ${audience === "Supervisors" ? "rating of their intern's overall performance" : "overall rating"}`));
+        }
+        used.add(q);
+      }
+      if (ratings.length) charts.push(hbar("Average ratings", ratings, ratingLabels));
+      for (const [q, xs] of single.filter(([q]) => !used.has(q)).slice(0, 3)) {
+        const c = countBy(xs.map((a) => ({ a })), "a");
+        if (c.length > 1) charts.push(hbar(short(q), c, c.map(([, n]) => `${n} (${pct(n, xs.length)}%)`)));
+      }
+      return { id, title: name, cohort, audience, responses, metrics: metrics.slice(0, 4), charts };
+    });
+    return out.sort((a, b) => termKey(b.cohort) - termKey(a.cohort) || a.title.localeCompare(b.title));
   }
 
   // ----- Sales Excellence Certificate (shown with practicum) -----
@@ -598,7 +705,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
       program: val(r, "Program") || "Other",
       audience: (["Student", "Employer", "Faculty"].includes(val(r, "Audience")) ? val(r, "Audience") : "Student") as Story["audience"],
       attribution: val(r, "Attribution") || val(r, "Audience"),
-      source: "Stories form",
+      source: val(r, "Source") || "Stories tab",
     }));
 
   // ----- Data notes: automatic checks on the incoming rows -----
@@ -619,7 +726,9 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     return notes;
   }
 
-  const sections = [globalSection(), internshipSection(), practicumSection(), leadershipSection(), packwaysSection(), careerSection()];
+  const surveys = surveySummaries();
+  const sections = [globalSection(), internshipSection(), practicumSection(), leadershipSection(), packwaysSection(), careerSection()]
+    .map((s) => (s.id === "internships" && surveys.length ? { ...s, surveys } : s));
   const hubData = hub();
   const cov = coverage();
   const multi = cov.byCount.slice(1).reduce((a, b) => a + b.n, 0);

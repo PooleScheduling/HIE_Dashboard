@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ReportData, Section } from "../data/types";
+import type { ReportData, Section, SurveySummary } from "../data/types";
 import { Chart } from "../components/Chart";
 import { DownloadMenu, Fact, Reveal, SourcesNote, SplitHeader, accentStyle, formatDate } from "../components/ui";
 import { Icon, iconFor } from "../components/Icon";
@@ -114,9 +114,50 @@ function ProgramDashboard({ s, data }: { s: Section; data: ReportData }) {
         </div>
       )}
 
+      {s.surveys && s.surveys.length > 0 && <Surveys list={s.surveys} accent={s.id} />}
+
       {s.note && <p className="note">{s.note}</p>}
 
-      <SourcesNote metrics={all} />
+      <SourcesNote metrics={[...all, ...(s.surveys ?? []).flatMap((v) => v.metrics)]} />
     </div>
+  );
+}
+
+// What participants said: one tab per survey, with its totals and charts.
+// Only closed questions are summarized; open-ended answers stay in the survey sheets.
+function Surveys({ list, accent }: { list: SurveySummary[]; accent: string }) {
+  const [sel, setSel] = useState(list[0].id);
+  const v = list.find((x) => x.id === sel) ?? list[0];
+  return (
+    <section className="surveys" style={accentStyle(accent)}>
+      <div className="surveys-head">
+        <p className="label">Surveys</p>
+        <h2>What participants and supervisors told us</h2>
+      </div>
+      <div className="survey-tabs no-print" role="tablist" aria-label="Surveys">
+        {list.map((x) => (
+          <button key={x.id} role="tab" aria-selected={x.id === v.id} className="survey-tab" onClick={() => setSel(x.id)}>
+            <b>{x.title}</b>
+            <small>{[x.cohort, `${x.responses} ${x.audience.toLowerCase()}`].filter(Boolean).join(" · ")}</small>
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" key={v.id} className="survey-panel">
+        <div className="facts boxed dyn" style={{ "--cols": Math.min(4, v.metrics.length) } as React.CSSProperties}>
+          {v.metrics.map((m, i) => <Fact key={m.id} m={m} accent={accent} delay={i * 50} />)}
+        </div>
+        {v.charts.length > 0 ? (
+          <div className="grid two">
+            {v.charts.map((c) => (
+              <Reveal key={c.title} className="panel">
+                <Chart chart={c} height={c.orientation === "horizontal" ? Math.max(200, c.categories.length * (c.series.length > 1 ? 40 : 28) + 50) : 260} />
+              </Reveal>
+            ))}
+          </div>
+        ) : (
+          <p className="note">This survey only has open-ended questions, so there's nothing to chart. The answers stay in the survey sheet.</p>
+        )}
+      </div>
+    </section>
   );
 }

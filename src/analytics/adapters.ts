@@ -10,7 +10,7 @@ import { NC_COUNTIES, gicsSector } from "./reference";
 // wording, so next year's form imports without code changes. A sheet that already has the
 // template's columns is passed through as is.
 
-export type AdaptMeta = { year?: string };
+export type AdaptMeta = { year?: string; source?: string };
 
 // cyrb53: a fast 53-bit hash. One-way in practice; the keys stay on the server anyway.
 function hash(s: string): string {
@@ -179,10 +179,39 @@ function salesCert(rows: Row[], meta: AdaptMeta): Row[] {
   return out;
 }
 
+// Any Google Form response sheet → one row per answer to a closed question:
+// Survey | Cohort | Audience | Respondent | Question | Answer.
+// Identifying, demographic and pay questions are skipped, and so are open-ended answers
+// (anything long or mostly unique), so only countable answers leave the sheet.
+const SKIP_QUESTION = /time ?stamp|name|e-?mail|phone|linkedin|company|organization|supervisor|employer's|race|ethnic|gender|pronoun|pay\b|rate of pay|wage|salary|stipend|date/i;
+function survey(rows: Row[], meta: AdaptMeta): Row[] {
+  const heads = Object.keys(rows[0]).filter((h) => h.trim() && !SKIP_QUESTION.test(h.split("\n")[0]));
+  const audience = Object.keys(rows[0]).some((h) => /^the intern\b|intern's/i.test(h)) ? "Supervisors" : "Students";
+  const keep = heads.filter((h) => {
+    const vals = rows.map((r) => get(r, h)).filter(Boolean);
+    if (!vals.length) return false;
+    const numeric = vals.filter((v) => /^\d+(\.\d+)?\b/.test(v)).length / vals.length >= 0.8;
+    const distinct = new Set(vals.map((v) => v.toLowerCase())).size;
+    const avgLen = vals.reduce((a, v) => a + v.length, 0) / vals.length;
+    return numeric || (distinct <= 8 && avgLen <= 40);
+  });
+  const out: Row[] = [];
+  rows.forEach((r, i) => {
+    // One marker row per response, so a survey with only open questions still counts responses.
+    out.push({ Survey: meta.source || "Survey", Cohort: meta.year || "", Audience: audience, Respondent: String(i + 1), Question: "", Answer: "" });
+    for (const h of keep) {
+      const a = get(r, h);
+      if (a) out.push({ Survey: meta.source || "Survey", Cohort: meta.year || "", Audience: audience, Respondent: String(i + 1), Question: h.trim(), Answer: a.slice(0, 60) });
+    }
+  });
+  return out;
+}
+
 const ADAPTERS: Record<string, (rows: Row[], meta: AdaptMeta) => Row[]> = {
   sbip_applicants: sbipApplicants,
   sbip_employers: sbipEmployers,
   sales_cert: salesCert,
+  sbip_surveys: survey,
 };
 
 // Called by the server for each source's rows before the report is built.

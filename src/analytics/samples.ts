@@ -308,6 +308,35 @@ function touchscreen(): Row[] {
   return rows;
 }
 
+// Program surveys: two made-up surveys in the summarized shape (no real answers).
+function surveys(): Row[] {
+  const r = rng(20260821);
+  const pickR = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)];
+  const rows: Row[] = [];
+  const add = (Survey: string, Audience: string, Respondent: number, Question: string, Answer: string) =>
+    rows.push({ Survey, Cohort: "Summer 2026", Audience, Respondent: String(Respondent), Question, Answer });
+  const statements = ["demonstrated a strong work ethic", "communicated effectively with others", "contributed meaningfully to your company's goals", "showed initiative and worked proactively", "completed high-quality work"];
+  for (let i = 1; i <= 12; i++) {
+    add("Supervisor survey", "Supervisors", i, "", "");
+    for (const st of statements) add("Supervisor survey", "Supervisors", i, `The intern ${st} throughout the internship.`, pickR(["Strongly Agree", "Strongly Agree", "Strongly Agree", "Somewhat Agree"]));
+    add("Supervisor survey", "Supervisors", i, "How would you rate the overall performance of the intern?", pickR(["10", "9", "10", "8"]));
+    add("Supervisor survey", "Supervisors", i, "Would you hire this intern for a full-time position if a suitable opening were available?", pickR(["Yes", "Yes", "Unsure"]));
+    add("Supervisor survey", "Supervisors", i, "Would you be interested in having another intern in the future?", pickR(["Yes", "Yes", "Yes", "Unsure"]));
+  }
+  const skills = ["Professional Communication", "Critical Thinking", "Leadership & Team Collaboration", "Career & Professional Development", "Professional Confidence"];
+  const scale = ["1 - Limited", "2 - Developing", "3 - Proficient", "4 - Highly Proficient"];
+  for (let i = 1; i <= 14; i++) {
+    add("End-of-program survey", "Students", i, "", "");
+    for (const s of skills) {
+      const b = 1 + Math.floor(r() * 3);
+      add("End-of-program survey", "Students", i, `${s} [At the beginning of my internship]`, scale[b - 1]);
+      add("End-of-program survey", "Students", i, `${s} [Now]`, scale[Math.min(3, b + (r() < 0.8 ? 1 : 0))]);
+    }
+    add("End-of-program survey", "Students", i, "How did the experience affect your interest in working for a small business in the future?", pickR(["Much more interested", "Much more interested", "Somewhat more interested", "No change"]));
+  }
+  return rows;
+}
+
 export const sampleRows: Rows = {
   hub_checkins: hub(),
   packways: packways(),
@@ -321,5 +350,6 @@ export const sampleRows: Rows = {
   career: career(),
   stories: stories(),
   touchscreen: touchscreen(),
+  sbip_surveys: surveys(),
   settings: [{ Setting: "Poole undergraduate enrollment", Value: "3000" }],
 };
