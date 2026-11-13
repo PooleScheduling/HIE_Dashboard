@@ -60,8 +60,8 @@ export const datasets: Dataset[] = [
     owner: "Student Leadership",
     status: "confirmed",
     description: "One row per Dean's Scholar, with completions by competency.",
-    likelySource: "DSP Engagement Dashboard (Google Sheet)",
-    cadence: "Live",
+    likelySource: "To confirm (DSP Engagement Dashboard)",
+    cadence: "Each semester",
     sheetTab: "DeansScholars",
     columns: [
       { name: "Student key", example: "S-1180" },
