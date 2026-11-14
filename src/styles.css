@@ -11,10 +11,10 @@
 
   /* Program colors for text and icons (NC State brand palette) */
   --a-global: #008473; --a-internships: #d14905; --a-practicum: #4156a1; --a-packways: #cc0000;
-  --a-career: #6f7d1c; --a-leadership: #990000; --a-hub: #427e93; --a-wall: #333333; --a-stories: #4156a1; --a-contribute: #990000;
+  --a-career: #6f7d1c; --a-leadership: #990000; --a-hub: #427e93; --a-deans: #990000; --a-wall: #333333; --a-stories: #4156a1; --a-contribute: #990000;
   /* Solid color blocks with white text. Same in both themes. */
   --b-red: #cc0000; --b-global: #008473; --b-internships: #d14905; --b-practicum: #4156a1; --b-packways: #cc0000;
-  --b-career: #6f7d1c; --b-leadership: #990000; --b-hub: #427e93; --b-wall: #333333; --b-stories: #4156a1; --b-contribute: #990000;
+  --b-career: #6f7d1c; --b-leadership: #990000; --b-hub: #427e93; --b-deans: #990000; --b-wall: #333333; --b-stories: #4156a1; --b-contribute: #990000;
 
   /* Chart series (checked for color-blind separation) */
   --s1: #cc0000; --s2: #4156a1; --s1-soft: #f1b9b9;
@@ -38,7 +38,7 @@
   --red: #e8484a; --red-ink: #ff7070; --red-deep: #990000; --red-soft: #3a1d1e;
   --utility: #000000; --foot: #1c1e21; --foot-legal: #000000;
   --a-global: #2fb5a2; --a-internships: #f07a3c; --a-practicum: #8b9de6; --a-packways: #ff6b6b;
-  --a-career: #b0be55; --a-leadership: #ff8f8f; --a-hub: #74b6cc; --a-wall: #d0d0d0; --a-stories: #8b9de6; --a-contribute: #ff7a7a;
+  --a-career: #b0be55; --a-leadership: #ff8f8f; --a-hub: #74b6cc; --a-deans: #ff8f8f; --a-wall: #d0d0d0; --a-stories: #8b9de6; --a-contribute: #ff7a7a;
   --s1: #e8484a; --s2: #6f86d6; --s1-soft: #6b2c2e;
   --g3: #ff8a8a; --g2: #e8484a; --g1: #8f2a2c; --g0: #33363b;
   --w-bg: #111110; --w-surface: #1a1a19; --w-border: #2e2e2c; --w-text: #f0efec; --w-text-2: #c3c2b7; --w-muted: #8f8e88; --w-grid: #2a2a28;

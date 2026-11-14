@@ -84,7 +84,8 @@ function getReport() {
       // names, emails and other personal fields are dropped and never leave this function.
       const got = /feed/i.test(s.Type)
         ? readTouchscreen_(s.Link, props.getProperty("TOUCHSCREEN_KEY") || "")
-        : HIE.adaptRows(d.id, readLiveSheet_(s.Link, s["Source tab"] || (d.id === "hub_checkins" ? d.sheetTab : "")), { year: s.Year || "" });
+        : readLiveTabs_(s.Link, s["Source tab"] || (d.id === "hub_checkins" ? d.sheetTab : ""))
+          .flatMap((tab) => HIE.adaptRows(d.id, tab, { year: s.Year || "", source: s.Source || "" }));
       if (got.length) { r = r.concat(got); kinds[d.id] = "live"; }
     }
     if (book) {
@@ -152,19 +153,24 @@ function sheetId_(/** @type {string} */ link) {
 }
 
 /**
- * Reads a source sheet. Read only: nothing here changes the source. The tab is the one named
- * in the Sources tab, else the one the link points at (#gid=...), else the first tab.
+ * Reads a source sheet. Read only: nothing here changes the source. Returns one list of rows per
+ * tab read: every tab when Source tab is "*", else the tab named in the Sources tab (spaces and
+ * case ignored), else the one the link points at (#gid=...), else the first tab.
  * @param {string} link
  * @param {string} tab
+ * @returns {Record<string, string>[][]}
  */
-function readLiveSheet_(link, tab) {
+function readLiveTabs_(link, tab) {
   const book = link ? openSheet_(sheetId_(link)) : null;
   if (!book) return [];
+  const sheets = book.getSheets();
+  if (String(tab).trim() === "*") return sheets.map(readTab_).filter((r) => r.length);
+  const want = String(tab || "").trim().toLowerCase();
   const gid = (/[#&?]gid=(\d+)/.exec(String(link)) || [])[1];
-  const sheet = (tab && book.getSheetByName(tab))
-    || (gid ? book.getSheets().find((sh) => String(sh.getSheetId()) === gid) : null)
-    || book.getSheets()[0];
-  return readTab_(sheet);
+  const sheet = (want && sheets.find((sh) => sh.getName().trim().toLowerCase() === want))
+    || (gid ? sheets.find((sh) => String(sh.getSheetId()) === gid) : null)
+    || sheets[0];
+  return [readTab_(sheet)];
 }
 
 /**

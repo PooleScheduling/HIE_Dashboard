@@ -102,12 +102,15 @@ function deansScholars(): Row[] {
   const list = shuffle([1, 1, 1, 1, 0, 0, 0, 0, 0, 0]);
   return counts.map((c, i) => ({
     "Student key": student(),
+    Cohort: i < 6 ? "FA25" : "FA26",
+    Level: i === 0 ? "Level 2" : "Level 1",
     "Beyond Business": String(c[0]),
     "Interpersonal Communication": String(c[1]),
     "Career Development": String(c[2]),
     "Teamwork and Leadership": String(c[3]),
-    "Internship or campus job": jobs[i] ? "Yes" : "No",
-    "Dean's List": list[i] ? "Yes" : "No",
+    "Badge completion %": String([62.5, 43.75, 37.5, 18.75, 18.75, 6.25, 6.25, 6.25, 0, 0][i]),
+    "HIE: Internship/work": jobs[i] ? "Yes" : "No",
+    "HIE: Dean's List": list[i] ? "Yes" : "No",
   }));
 }
 

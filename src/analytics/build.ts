@@ -169,7 +169,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
     // Nothing is inferred about who was placed.
     const A = mergeRows(R("sbip_applicants"), (r) => `${val(r, "Cohort")}|${val(r, "Student key")}`);
     const E = R("sbip_employers");
-    const base: Section = { id: "internships", title: "Small Business Internship Program", kicker: "Internships", owner: ds("sbip_applicants").owner, status: kindOf("sbip_applicants"), summary: "Internships with small and rural North Carolina businesses", metrics: [], charts: [] };
+    const base: Section = { id: "internships", title: "Small Business Internship Program", kicker: "Small Business Internship Program", owner: ds("sbip_applicants").owner, status: kindOf("sbip_applicants"), summary: "Internships with small and rural North Carolina businesses", metrics: [], charts: [] };
     if (!A.length) return base;
     const cohorts = sortTerms(A.map((r) => val(r, "Cohort")));
     const stats = cohorts.map((c) => ({ c, rows: A.filter((r) => val(r, "Cohort") === c), applicants: A.filter((r) => val(r, "Cohort") === c).length }));
@@ -471,9 +471,8 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
   // ----- Packways and Dean's Scholars -----
   function packwaysSection(): Section {
     const K = R("packways");
-    const D = R("deans_scholars");
-    const base: Section = { id: "packways", title: "Poole Packways and Dean's Scholars", kicker: "Packways and Dean's Scholars", owner: "Student Leadership", status: kindOf("packways"), summary: "Competency activities tracked in Poole Packways", metrics: [], charts: [] };
-    if (!K.length && !D.length) return base;
+    const base: Section = { id: "packways", title: "Poole Packways", kicker: "Packways", owner: "Student Leadership", status: kindOf("packways"), summary: "Competency activities tracked in Poole Packways", metrics: [], charts: [] };
+    if (!K.length) return base;
     const metrics: Metric[] = [];
     const charts: Chart[] = [];
     let card: Metric | undefined;
@@ -516,19 +515,55 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
         as("funnel", hbar(`How far students go, ${ayLabel}`, [["1 or more activities", v.length], ["2 or more", v.filter((n) => n >= 2).length], ["4 or more", v.filter((n) => n >= 4).length], ["6 or more", v.filter((n) => n >= 6).length]])),
       );
     }
-    if (D.length) {
-      const comps = ["Beyond Business", "Interpersonal Communication", "Career Development", "Teamwork and Leadership"];
-      const totals: [string, number][] = comps.map((c) => [c, D.reduce((a, r) => a + (Number(val(r, c)) || 0), 0)]);
-      const jobs = D.filter((r) => yes(val(r, "Internship or campus job"))).length;
-      const list = D.filter((r) => yes(val(r, "Dean's List"))).length;
-      metrics.push(
-        metric("d-jobs", "deans_scholars", `${jobs} of ${D.length}`, "Dean's Scholars with an internship or campus job"),
-        metric("d-list", "deans_scholars", `${list} of ${D.length}`, "Dean's Scholars on the Dean's List"),
-      );
-      charts.push(as("donut", hbar("Dean's Scholars completions by competency", totals.sort((a, b) => b[1] - a[1]))));
-      if (!card) { card = metric("d-total", "deans_scholars", fmt(totals.reduce((a, b) => a + b[1], 0)), "Dean's Scholars activity completions"); summary = "activity completions by Dean's Scholars"; }
-    }
     return { ...base, summary, cardMetric: card, metrics, charts };
+  }
+
+  // ----- Dean's Scholars (DSP Engagement Dashboard) -----
+  // Scholars, competency completions, badge activities and the experiences recorded on the
+  // DSP HIE tab, all as counts. The tabs are joined per scholar.
+  function deansSection(): Section {
+    const D = mergeRows(R("deans_scholars"), (r) => val(r, "Student key"));
+    const base: Section = { id: "deans", title: "Dean's Scholars", kicker: "Dean's Scholars", owner: ds("deans_scholars").owner, status: kindOf("deans_scholars"), summary: "Dean's Scholars engagement in Poole Packways", metrics: [], charts: [] };
+    if (!D.length) return base;
+    const num = (r: Row, k: string) => Number(val(r, k)) || 0;
+    const comps = ["Beyond Business", "Career Development", "Interpersonal Communication", "Teamwork and Leadership"];
+    const withComp = D.filter((r) => comps.some((c) => val(r, c) !== ""));
+    const totals: [string, number][] = comps.map((c) => [c, D.reduce((x, r) => x + num(r, c), 0)]);
+    const total = totals.reduce((x, t) => x + t[1], 0);
+    const badgeRows = D.filter((r) => val(r, "Badge completion %") !== "");
+    const avgBadge = badgeRows.length ? badgeRows.reduce((x, r) => x + num(r, "Badge completion %"), 0) / badgeRows.length : 0;
+    const badgeActs = uniq(D.flatMap((r) => Object.keys(r).filter((k) => k.startsWith("Badge: "))));
+    const hieKeys = uniq(D.flatMap((r) => Object.keys(r).filter((k) => k.startsWith("HIE: "))));
+    const hieRows = D.filter((r) => hieKeys.some((k) => val(r, k) !== ""));
+    const yesOf = (k: string) => hieRows.filter((r) => val(r, k) === "Yes").length;
+    const scholarsM = metric("d-scholars", "deans_scholars", fmt(D.length), "Dean's Scholars on record");
+    const metrics: Metric[] = [scholarsM];
+    if (withComp.length) metrics.push(metric("d-total", "deans_scholars", fmt(total), `Packways competency completions by ${withComp.length} scholars`));
+    if (badgeRows.length) metrics.push(metric("d-badge", "deans_scholars", `${Math.round(avgBadge)}%`, "average Dean's Scholars badge completion"));
+    const job = hieKeys.find((k) => /internship|work/i.test(k));
+    if (job) metrics.push(metric("d-jobs", "deans_scholars", `${yesOf(job)} of ${hieRows.length}`, "with an internship or work experience on record"));
+    const list = hieKeys.find((k) => /dean'?s list/i.test(k));
+    if (list) metrics.push(metric("d-list", "deans_scholars", `${yesOf(list)} of ${hieRows.length}`, "on the Dean's List"));
+    const charts: Chart[] = [];
+    if (total) charts.push(as("donut", hbar("Competency completions", [...totals].sort((x, y) => y[1] - x[1]))));
+    if (hieKeys.length) {
+      const p = hieKeys.map((k) => [k.replace(/^HIE: /, ""), pct(yesOf(k), hieRows.length)] as [string, number]).sort((x, y) => y[1] - x[1]);
+      charts.push(as("meter", hbar("Experiences on record (% of scholars)", p, p.map(([k, v]) => `${v}% · ${yesOf(`HIE: ${k}`)} of ${hieRows.length}`))));
+    }
+    if (badgeActs.length) {
+      const done = (k: string) => badgeRows.filter((r) => num(r, k) >= 100).length;
+      const p = badgeActs.map((k) => [k.replace(/^Badge: /, ""), pct(done(k), badgeRows.length)] as [string, number]).sort((x, y) => y[1] - x[1]);
+      charts.push(as("meter", hbar("Badge activities completed (% of scholars)", p, p.map(([k, v]) => `${v}% · ${done(`Badge: ${k}`)} of ${badgeRows.length}`))));
+    }
+    const levels = countBy(D, "Level");
+    if (levels.length) charts.push(as("donut", hbar("Packways level", levels)));
+    const cohorts = countBy(D, "Cohort");
+    if (cohorts.length) charts.push(bar("Scholars by cohort", cohorts.map((c) => c[0]).sort(), cohorts.sort((x, y) => x[0].localeCompare(y[0])).map((c) => c[1])));
+    const cls = countBy(D, "Classification");
+    if (cls.length) charts.push(as("donut", hbar("Class standing", cls)));
+    const counties = countMapped(D, "Home county", countyType);
+    if (counties.length) charts.push({ ...as("donut", hbar("Home county type", counties)), note: "County types follow the NC Rural Center's 2020 Census definitions." });
+    return { ...base, summary: `Dean's Scholars on record${withComp.length ? `, with ${fmt(total)} Packways competency completions` : ""}`, cardMetric: scholarsM, metrics, charts };
   }
 
   // ----- Career -----
@@ -716,7 +751,7 @@ export function buildReport(input: Rows, opts: BuildOptions): ReportData {
   }
 
   const surveys = surveySummaries();
-  const sections = [globalSection(), internshipSection(), practicumSection(), leadershipSection(), packwaysSection(), careerSection()]
+  const sections = [globalSection(), internshipSection(), practicumSection(), leadershipSection(), packwaysSection(), deansSection(), careerSection()]
     .map((s) => (s.id === "internships" && surveys.length ? { ...s, surveys } : s));
   const hubData = hub();
   const cov = coverage();

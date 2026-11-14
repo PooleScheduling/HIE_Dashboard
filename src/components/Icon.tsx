@@ -87,6 +87,7 @@ const byId: Record<string, IconName> = {
   packways: "compass",
   career: "rocket",
   leadership: "flag",
+  deans: "spark",
   hub: "pin",
   "hub-taps": "users",
   "hub-peak-week": "calendar",

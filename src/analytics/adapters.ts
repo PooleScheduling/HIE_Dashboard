@@ -225,7 +225,46 @@ function survey(rows: Row[], meta: AdaptMeta): Row[] {
   return out;
 }
 
+// Dean's Scholars (DSP Engagement Dashboard). Handles its three tab shapes: badge completion,
+// competency completions and the HIE tab. Names, emails, profile links and GPA are dropped; the
+// HIE tab's entries (employers, places, orgs) become Yes/No so only counts remain. Rows are keyed
+// by a hash of the scholar's name, since the HIE tab has no email.
+function deansScholars(rows: Row[]): Row[] {
+  const r0 = rows[0];
+  const first = findCol(r0, /^first name$/i);
+  const last = findCol(r0, /^last name$/i);
+  const heads = Object.keys(r0);
+  const competency = heads.filter((h) => /\(completions\)\s*$/i.test(h));
+  const totalComp = findCol(r0, /^total completions$/i);
+  const badgePct = findCol(r0, /^completion percentage$/i);
+  const totalActs = heads.indexOf(findCol(r0, /^total activities$/i) ?? "");
+  const badgeActs = totalActs >= 0 ? heads.slice(totalActs + 1).filter((h) => h.trim()) : [];
+  const hieCols = heads.filter((h) => /^(internship\/work|study abroad|practicum|engagement|honors college|dean'?s list)$/i.test(h.trim()));
+  const pctNum = (v: string) => { const n = parseFloat(String(v).replace("%", "")); return isNaN(n) ? "" : String(n); };
+  const out: Row[] = [];
+  for (const r of rows) {
+    const name = `${get(r, first)} ${get(r, last)}`.trim().toLowerCase();
+    if (!name) continue; // totals rows have no name
+    const row: Row = {
+      "Student key": `N-${hash(name)}`,
+      Cohort: get(r, findCol(r0, /^cohort$/i)),
+      Classification: get(r, findCol(r0, /classification/i)),
+      "Home county": get(r, findCol(r0, /^home county$/i)),
+      Major: get(r, findCol(r0, /^major$/i)),
+      Level: get(r, findCol(r0, /^current level$/i)),
+    };
+    for (const h of competency) row[h.replace(/\s*\(completions\)\s*$/i, "").trim()] = get(r, h);
+    if (totalComp) row["Total completions"] = get(r, totalComp);
+    if (badgePct) row["Badge completion %"] = pctNum(get(r, badgePct));
+    for (const h of badgeActs) row[`Badge: ${h.trim()}`] = pctNum(get(r, h));
+    for (const h of hieCols) { const v = get(r, h); row[`HIE: ${h.trim()}`] = v && !/^false$/i.test(v) ? "Yes" : "No"; }
+    out.push(row);
+  }
+  return out;
+}
+
 const ADAPTERS: Record<string, (rows: Row[], meta: AdaptMeta) => Row[]> = {
+  deans_scholars: deansScholars,
   sbip_applicants: sbipApplicants,
   sbip_employers: sbipEmployers,
   sales_cert: salesCert,
