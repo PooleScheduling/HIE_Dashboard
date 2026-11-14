@@ -77,20 +77,34 @@ function getReport() {
 
   /** @type {Record<string, Record<string, string>[]>} */ const rows = {};
   /** @type {Record<string, string>} */ const kinds = {};
+  /** @type {string[]} */ const problems = [];
   for (const d of HIE.datasets) {
     /** @type {Record<string, string>[]} */ let r = [];
     for (const s of all.filter((x) => x.Dataset === d.id && /^live/i.test(x.Type))) {
       // Program sheets (form responses, trackers) are mapped to the template's columns here;
       // names, emails and other personal fields are dropped and never leave this function.
-      const got = /feed/i.test(s.Type)
-        ? readTouchscreen_(s.Link, props.getProperty("TOUCHSCREEN_KEY") || "")
-        : readLiveTabs_(s.Link, s["Source tab"] || (d.id === "hub_checkins" ? d.sheetTab : ""))
-          .flatMap((tab) => HIE.adaptRows(d.id, tab, { year: s.Year || "", source: s.Source || "" }));
+      // One source that can't be read (e.g. not shared with this account) must not break the
+      // report: it's skipped and named in the data notes.
+      /** @type {Record<string, string>[]} */ let got = [];
+      try {
+        got = /feed/i.test(s.Type)
+          ? readTouchscreen_(s.Link, props.getProperty("TOUCHSCREEN_KEY") || "")
+          : readLiveTabs_(s.Link, s["Source tab"] || (d.id === "hub_checkins" ? d.sheetTab : ""))
+            .flatMap((tab) => HIE.adaptRows(d.id, tab, { year: s.Year || "", source: s.Source || "" }));
+        if (!got.length && !/feed/i.test(s.Type)) problems.push(`${s.Source || d.id}: no rows read. Check the link and that ${Session.getEffectiveUser().getEmail()} can view the sheet.`);
+      } catch (e) {
+        console.warn("Source %s failed: %s", s.Source || d.id, e);
+        problems.push(`${s.Source || d.id}: couldn't be read (${String(e).replace(/^Exception:\s*/, "")}). Share it with ${Session.getEffectiveUser().getEmail()} as Viewer.`);
+      }
       if (got.length) { r = r.concat(got); kinds[d.id] = "live"; }
     }
     if (book) {
-      const copied = d.id === "hub_checkins" || d.id === "touchscreen" ? [] : readTab_(book.getSheetByName(d.sheetTab));
-      if (copied.length) { r = r.concat(copied); kinds[d.id] = kinds[d.id] || "upload"; }
+      try {
+        const copied = d.id === "hub_checkins" || d.id === "touchscreen" ? [] : readTab_(book.getSheetByName(d.sheetTab));
+        if (copied.length) { r = r.concat(copied); kinds[d.id] = kinds[d.id] || "upload"; }
+      } catch (e) {
+        problems.push(`Data Hub tab ${d.sheetTab}: ${String(e).replace(/^Exception:\s*/, "")}`);
+      }
     }
     // Programs that have given us their data (realOnly) never fall back to sample rows.
     rows[d.id] = r.length ? r : useSamples && !d.realOnly ? HIE.sampleRows[d.id] || [] : [];
@@ -103,9 +117,12 @@ function getReport() {
   const report = HIE.buildReport(rows, { asOf: today, kinds });
   if (sources.length) report.sources = sourcesForReport_(sources, kinds);
   if (book) {
-    overlayMetrics_(report, book.getSheetByName("Metrics"));
-    overlayTeam_(report, book.getSheetByName("Team"));
+    try {
+      overlayMetrics_(report, book.getSheetByName("Metrics"));
+      overlayTeam_(report, book.getSheetByName("Team"));
+    } catch (e) { problems.push(`Metrics/Team tabs: ${String(e).replace(/^Exception:\s*/, "")}`); }
   }
+  report.openIssues = [...problems.map((p) => `Source problem: ${p}`), ...report.openIssues];
 
   const json = JSON.stringify(report);
   try { cache.put(CACHE_KEY, json, CACHE_SECONDS); } catch (e) { /* over 100KB: skip cache */ }
@@ -161,8 +178,8 @@ function sheetId_(/** @type {string} */ link) {
  * @returns {Record<string, string>[][]}
  */
 function readLiveTabs_(link, tab) {
-  const book = link ? openSheet_(sheetId_(link)) : null;
-  if (!book) return [];
+  if (!link) return [];
+  const book = SpreadsheetApp.openById(sheetId_(link)); // throws if this account can't open it
   const sheets = book.getSheets();
   if (String(tab).trim() === "*") return sheets.map(readTab_).filter((r) => r.length);
   const want = String(tab || "").trim().toLowerCase();
